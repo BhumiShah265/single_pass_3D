@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# Build and IDE
+build/
+dist/
+*.egg-info/
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Data, media uploads, and reconstruction outputs
+data/uploads/*
+data/output/*
+data/workspace/*
+data/input/*
+!data/**/.gitkeep
+
+# Logs & temp
+*.log
+scratch/
