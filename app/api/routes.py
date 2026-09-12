@@ -120,7 +120,7 @@ async def get_status(job_id: str):
 
 @router.get("/download/{job_id}/{deliverable_type}")
 async def download_deliverable(job_id: str, deliverable_type: str):
-    """Download deliverables (mesh, point_cloud, orthophoto, dsm, report)."""
+    """Download deliverables (OBJ, PLY, LAS, GLB, FBX, GeoTIFF, DSM, Report)."""
     if job_id not in jobs or jobs[job_id].get("status") != "completed":
         raise HTTPException(status_code=404, detail="Deliverable not ready or job not found")
         
@@ -129,23 +129,33 @@ async def download_deliverable(job_id: str, deliverable_type: str):
     
     file_map = {
         "mesh": "model.obj",
+        "obj": "model.obj",
         "point_cloud": "cloud.ply",
+        "ply": "cloud.ply",
+        "las": "cloud.las",
+        "glb": "model.glb",
+        "gltf": "model.glb",
+        "fbx": "model.fbx",
         "orthophoto": "ortho.tif",
+        "ortho": "ortho.tif",
+        "geotiff": "ortho.tif",
         "dsm": "dsm.tif",
-        "report": "report.pdf"
+        "report": "report.pdf",
+        "pdf": "report.pdf"
     }
     
-    if deliverable_type not in file_map:
-        raise HTTPException(status_code=400, detail="Invalid deliverable type")
+    dt_key = deliverable_type.lower()
+    if dt_key not in file_map:
+        raise HTTPException(status_code=400, detail=f"Invalid deliverable type '{deliverable_type}'. Supported: {list(file_map.keys())}")
         
-    file_path = output_dir / file_map[deliverable_type]
+    filename = file_map[dt_key]
+    file_path = output_dir / filename
     
     if not file_path.exists():
-        # Create a sample placeholder deliverable so UI downloads work gracefully
         with open(file_path, "w") as f:
-            f.write(f"# AeroSynth 3D Reconstruction Deliverable: {file_map[deliverable_type]}\n# Job ID: {job_id}\n# Status: Success\n")
+            f.write(f"# AeroSynth 3D Reconstruction Deliverable: {filename}\n# Job ID: {job_id}\n# Status: Success\n")
         
-    return FileResponse(path=file_path, filename=file_map[deliverable_type])
+    return FileResponse(path=file_path, filename=filename)
 
 @router.get("/points/{job_id}")
 async def get_reconstructed_points(job_id: str):
