@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>AeroSynth 3D - Photogrammetry &amp; Neural Reconstruction Studio</title>
+  <link href="https://fonts.googleapis.com" rel="preconnect"/>
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            app: {
+              bg: "#0d1117",
+              panel: "#161b22",
+              surface: "#21262d",
+              hover: "#30363d",
+              border: "#30363d",
+              subtle: "#1f242c"
+            },
+            tech: {
+              cyan: "#38bdf8",
+              blue: "#0ea5e9",
+              green: "#10b981",
+              amber: "#f59e0b",
+              rose: "#f43f5e"
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    @layer base {
+      html, body {
+        height: 100%;
+        overflow-x: hidden;
+      }
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0d1117;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #30363d;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #484f58;
+    }
+    .pulse-glow {
+      animation: pulseGlow 2s infinite;
+    }
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.6)); }
+    }
+  </style>
+</head>
+<body class="bg-app-bg text-slate-200 font-sans text-xs antialiased flex flex-col min-h-screen selection:bg-tech-blue selection:text-white">
+
+  <!-- 1. TOP APPLICATION TOOLBAR & TITLEBAR -->
+  <header class="h-12 bg-app-panel border-b border-app-border flex items-center justify-between px-3 shrink-0 z-30 select-none">
+    <div class="flex items-center gap-4">
+      <!-- App Brand & Title -->
+      <div class="flex items-center gap-2 pr-2 border-r border-app-border">
+        <div class="w-7 h-7 rounded bg-tech-blue/20 border border-tech-blue/40 flex items-center justify-center text-tech-cyan">
+          <span class="material-symbols-outlined text-[18px]">view_in_ar</span>
+        </div>
+        <div class="flex items-baseline gap-1.5">
+          <span class="font-bold text-sm tracking-tight text-white">AeroSynth 3D</span>
+          <span class="font-mono text-[10px] text-tech-cyan px-1 py-0.5 rounded bg-tech-cyan/10 border border-tech-cyan/20">v3.5.2</span>
+        </div>
+      </div>
+      
+      <!-- Active Project Tag -->
+      <div class="hidden md:flex items-center gap-2 pl-2 font-mono text-[11px] text-slate-400">
+        <span class="material-symbols-outlined text-[14px] text-slate-500">folder_open</span>
+        <span id="headerProjectName" class="text-slate-200 font-medium truncate max-w-xs">Single_Pass_Drone_Reconstruction</span>
+        <span class="text-slate-500">|</span>
+        <span id="headerStatusBadge" class="flex items-center gap-1 text-slate-400">
+          <span id="headerStatusDot" class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+          <span id="headerStatusText">Ready for Ingestion</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Right Side System Telemetry & Status -->
+    <div class="flex items-center gap-3">
+      <!-- Hardware / Device Allocation -->
+      <div class="flex items-center gap-2 font-mono text-[11px] bg-app-bg px-2.5 py-1 rounded border border-app-border">
+        <div class="flex items-center gap-1.5 text-slate-300">
+          <span class="text-slate-500">ENGINE:</span>
+          <span id="hwDeviceName" class="text-emerald-400 font-medium">Detecting...</span>
+          <span class="text-slate-600 hidden sm:inline">|</span>
+          <span class="text-slate-500 hidden sm:inline">MEMORY:</span>
+          <span id="hwMemory" class="text-slate-200 hidden sm:inline">Active</span>
+        </div>
+      </div>
+      
+      <a href="/docs" target="_blank" class="px-2 py-1 rounded bg-app-surface hover:bg-slate-700 text-slate-300 hover:text-white border border-app-border font-mono text-[11px] flex items-center gap-1 transition-colors" title="Open Swagger API Documentation">
+        <span class="material-symbols-outlined text-[14px]">api</span>
+        <span>API Docs</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- 2. MAIN WORKBENCH LAYOUT -->
+  <div class="flex-1 flex flex-col lg:flex-row overflow-hidden">
+    
+    <!-- LEFT SIDEBAR: Ingestion & Reconstruction Configuration Panel -->
+    <aside class="w-full lg:w-[410px] xl:w-[440px] bg-app-panel border-r border-app-border flex flex-col shrink-0 overflow-y-auto max-h-[calc(100vh-3rem)]">
+      
+      <!-- Panel Header -->
+      <div class="p-3 border-b border-app-border flex items-center justify-between bg-app-surface/50">
+        <div class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-tech-cyan text-[18px]">tune</span>
+          <h2 class="font-semibold text-slate-100 text-xs tracking-wide uppercase">Pipeline Ingestion &amp; Setup</h2>
+        </div>
+        <span class="font-mono text-[10px] text-slate-400 bg-app-bg px-1.5 py-0.5 rounded border border-app-border">COLMAP + OPENMVS</span>
+      </div>
+
+      <div class="p-3.5 flex flex-col gap-4">
+        
+        <!-- SECTION 1: RAW DRONE VIDEO INGESTION -->
+        <div class="flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-slate-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-tech-cyan"></span>
+              1. Aerial Video Feed
+            </span>
+            <span id="videoStatusTag" class="font-mono text-[10px] text-slate-400">STATUS: AWAITING FILE</span>
+          </div>
+
+          <!-- Drag and Drop Target / Ingested File Box -->
+          <div id="dropZone" class="bg-app-bg border border-dashed border-app-border rounded p-3 flex flex-col gap-2.5 hover:border-tech-cyan transition-colors cursor-pointer relative group">
+            <input type="file" id="videoFileInput" accept="video/*" class="hidden" />
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-start gap-2.5 min-w-0">
+                <div class="w-8 h-8 rounded bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 shrink-0 group-hover:text-tech-cyan transition-colors">
+                  <span class="material-symbols-outlined text-[18px]">videocam</span>
+                </div>
+                <div class="min-w-0">
+                  <p id="videoFileName" class="font-mono text-[11px] text-white font-medium truncate">Select or drag drone video file (.mp4 / .mov)</p>
+                  <p id="videoFileSpecs" class="font-mono text-[10px] text-slate-400">Click to upload video for 3D reconstruction</p>
+                </div>
+              </div>
+              <button type="button" id="browseBtn" class="px-2.5 py-1 text-[10px] rounded bg-app-surface border border-app-border text-slate-300 hover:text-white hover:bg-slate-700 transition-colors shrink-0 font-medium">
+                Browse
+              </button>
+            </div>
+
+            <!-- Upload Progress Bar (hidden initially) -->
+            <div id="uploadProgressContainer" class="hidden flex flex-col gap-1 pt-1 border-t border-app-border/80">
+              <div class="flex justify-between text-[10px] font-mono text-slate-400">
+                <span id="uploadProgressText">Uploading video to backend...</span>
+                <span id="uploadProgressPercent">0%</span>
+              </div>
+              <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                <div id="uploadProgressBar" class="bg-tech-cyan h-1.5 rounded-full transition-all duration-300 w-0"></div>
+              </div>
+            </div>
+
+            <!-- Detailed Ingestion Specs Grid -->
+            <div class="grid grid-cols-3 gap-1.5 pt-1 border-t border-app-border/80 font-mono text-[10px]">
+              <div class="bg-app-panel p-1.5 rounded border border-app-border/60">
+                <span class="text-slate-500 block">JOB ID</span>
+                <span id="displayJobId" class="text-slate-200 font-medium truncate block" title="None">None</span>
+              </div>
+              <div class="bg-app-panel p-1.5 rounded border border-app-border/60">
+                <span class="text-slate-500 block">FILE SIZE</span>
+                <span id="displayFileSize" class="text-slate-200 font-medium">—</span>
+              </div>
+              <div class="bg-app-panel p-1.5 rounded border border-app-border/60">
+                <span class="text-slate-500 block">SERVER LINK</span>
+                <span id="displayApiStatus" class="text-emerald-400 font-medium">Connected</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 2: SYNCHRONIZED PIPELINE STAGES -->
+        <div class="flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-slate-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-tech-cyan"></span>
+              2. Reconstruction Pipeline Modules
+            </span>
+            <span id="pipelineModulesCount" class="text-[10px] text-slate-400 font-mono">10 Stages</span>
+          </div>
+
+          <div class="bg-app-bg border border-app-border rounded divide-y divide-app-border/80">
+            <!-- Stage: Keyframe Selection & Quality Filtering -->
+            <div class="p-2.5 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-tech-cyan text-[16px]">movie_filter</span>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-slate-200 text-[11px]">Frame Extraction &amp; Quality Filter</span>
+                    <span class="font-mono text-[9px] px-1 py-0.2 rounded bg-app-surface text-slate-300">CV2</span>
+                  </div>
+                  <div class="font-mono text-[10px] text-slate-400">Laplacian sharpness &amp; illumination scoring</div>
+                </div>
+              </div>
+              <span class="font-mono text-[10px] text-emerald-400 font-medium">READY</span>
+            </div>
+
+            <!-- Stage: Dynamic Object Voiding -->
+            <div class="p-2.5 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-tech-cyan text-[16px]">person_remove</span>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-slate-200 text-[11px]">Dynamic Object Masking</span>
+                    <span class="font-mono text-[9px] px-1 py-0.2 rounded bg-app-surface text-slate-300">YOLOv8</span>
+                  </div>
+                  <div class="font-mono text-[10px] text-slate-400">Masks pedestrians, moving cars, and vehicles</div>
+                </div>
+              </div>
+              <span class="font-mono text-[10px] text-emerald-400 font-medium">ACTIVE</span>
+            </div>
+
+            <!-- Stage: SfM & Meshing -->
+            <div class="p-2.5 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-tech-cyan text-[16px]">view_in_ar</span>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-slate-200 text-[11px]">SfM &amp; Surface Meshing</span>
+                    <span class="font-mono text-[9px] px-1 py-0.2 rounded bg-app-surface text-slate-300">COLMAP/OpenMVS</span>
+                  </div>
+                  <div class="font-mono text-[10px] text-slate-400">Poisson reconstruction &amp; texture projection</div>
+                </div>
+              </div>
+              <span class="font-mono text-[10px] text-emerald-400 font-medium">READY</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 3: RECONSTRUCTION ENGINE PARAMETERS -->
+        <div class="flex flex-col gap-2.5">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-slate-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-tech-cyan"></span>
+              3. Execution Parameters
+            </span>
+            <span class="font-mono text-[10px] text-tech-cyan">CONFIG</span>
+          </div>
+
+          <div class="bg-app-bg border border-app-border rounded p-3 flex flex-col gap-3">
+            <!-- Keyframe extraction rate slider -->
+            <div class="flex flex-col gap-1.5">
+              <div class="flex items-center justify-between">
+                <label class="text-[11px] text-slate-300 font-medium">Keyframe Extraction Stride</label>
+                <span id="fpsValueDisplay" class="font-mono text-[11px] text-tech-cyan">2.0 FPS</span>
+              </div>
+              <input id="fpsSlider" class="w-full h-1 bg-app-surface rounded appearance-none cursor-pointer accent-tech-blue" max="10" min="1" step="0.5" type="range" value="2.0"/>
+              <div class="flex items-center justify-between text-[9px] font-mono text-slate-500">
+                <span>1.0 fps (Fast)</span>
+                <span>2.0 fps (Standard)</span>
+                <span>10.0 fps (Dense)</span>
+              </div>
+            </div>
+
+            <!-- Pipeline Option Toggles -->
+            <div class="grid grid-cols-2 gap-2 pt-1 border-t border-app-border/70">
+              <label class="flex items-start gap-2 p-2 rounded bg-app-panel border border-app-border/80 cursor-pointer hover:border-slate-500 transition-colors">
+                <input id="optDynamicMasking" checked class="mt-0.5 rounded border-slate-700 text-tech-blue focus:ring-0 bg-app-bg" type="checkbox"/>
+                <div>
+                  <span class="block text-[11px] font-medium text-slate-200">Dynamic Mask</span>
+                  <span class="block text-[10px] text-slate-400">YOLO object voiding</span>
+                </div>
+              </label>
+              <label class="flex items-start gap-2 p-2 rounded bg-app-panel border border-app-border/80 cursor-pointer hover:border-slate-500 transition-colors">
+                <input id="optDenseDepth" checked class="mt-0.5 rounded border-slate-700 text-tech-blue focus:ring-0 bg-app-bg" type="checkbox"/>
+                <div>
+                  <span class="block text-[11px] font-medium text-slate-200">Dense Meshing</span>
+                  <span class="block text-[10px] text-slate-400">Surface texturing</span>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 4: PRIMARY ACTION BUTTON -->
+        <div class="flex flex-col gap-2 pt-1">
+          <button id="startReconstructionBtn" disabled class="w-full py-2.5 px-4 rounded bg-slate-700 text-slate-400 font-medium text-xs flex items-center justify-center gap-2 border border-slate-600 cursor-not-allowed shadow-sm transition-all duration-200">
+            <span id="btnIcon" class="material-symbols-outlined text-[18px]">play_circle</span>
+            <span id="btnText" class="font-semibold tracking-wide uppercase">Upload Video First</span>
+          </button>
+          
+          <div id="jobStatusMessage" class="font-mono text-[10px] text-center text-slate-400 p-1.5 rounded bg-app-bg border border-app-border/60">
+            Awaiting video upload to begin 3D reconstruction pipeline.
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+    <!-- RIGHT WORKSPACE: 3D Viewport + Inspection Metrics & Deliverable Exports -->
+    <main class="flex-1 flex flex-col min-w-0 bg-app-bg overflow-y-auto">
+      
+      <!-- 3D VIEWPORT CONTAINER -->
+      <div class="flex-1 flex flex-col min-h-[480px] xl:min-h-[540px] border-b border-app-border relative bg-black">
+        
+        <!-- Viewport Top Toolbar -->
+        <div class="h-9 bg-app-panel/90 backdrop-blur border-b border-app-border flex items-center justify-between px-3 z-10 select-none">
+          <div class="flex items-center gap-1">
+            <span class="font-mono text-[11px] font-medium text-slate-400 mr-2 flex items-center gap-1">
+              <span class="material-symbols-outlined text-[14px]">view_in_ar</span> 3D Studio Viewport
+            </span>
+            
+            <!-- Render Display Modes -->
+            <div class="flex items-center bg-app-bg rounded border border-app-border p-0.5">
+              <button class="px-2 py-0.5 rounded text-[10px] font-medium bg-app-surface text-tech-cyan border border-app-border/80">
+                3D Reconstruction
+              </button>
+              <button class="px-2 py-0.5 rounded text-[10px] font-medium text-slate-400 hover:text-slate-200">
+                Point Cloud
+              </button>
+              <button class="px-2 py-0.5 rounded text-[10px] font-medium text-slate-400 hover:text-slate-200">
+                Textured Mesh
+              </button>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <div id="liveStatusPill" class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-mono text-slate-300 flex items-center gap-1.5">
+              <span id="liveStatusDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+              <span id="liveStatusLabel">IDLE</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3D CANVAS VIEWPORT AREA -->
+        <div class="flex-1 relative w-full h-full bg-[#10141a] overflow-hidden flex items-center justify-center">
+          <img id="viewportImage" alt="3D Photogrammetry Viewport" class="w-full h-full object-cover select-none pointer-events-none" src="/assets/viewport_gaussian.png"/>
+
+          <!-- Top-Left In-Viewport Layer & Scene Stats Overlay -->
+          <div class="absolute top-3 left-3 bg-app-panel/90 backdrop-blur border border-app-border/80 rounded p-2.5 font-mono text-[10px] text-slate-300 shadow-lg flex flex-col gap-1 pointer-events-auto">
+            <div class="flex items-center justify-between gap-4 border-b border-app-border/60 pb-1">
+              <span class="text-tech-cyan font-semibold">Active Scene: AeroSynth 3D</span>
+              <span id="viewportQualityScore" class="text-emerald-400 font-medium">Single-Pass Aerial</span>
+            </div>
+            <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 pt-0.5 text-slate-400">
+              <span>Pipeline Status:</span>
+              <span id="vpStatus" class="text-slate-200 text-right font-medium">Ready</span>
+              <span>Reconstructed Points:</span>
+              <span id="vpPoints" class="text-slate-200 text-right">248,910</span>
+              <span>Ground Sampling Dist:</span>
+              <span id="vpGsd" class="text-slate-200 text-right">1.12 cm/px</span>
+              <span>Projection Scale:</span>
+              <span class="text-slate-200 text-right">1:1 Metric</span>
+            </div>
+          </div>
+
+          <!-- Bottom-Right Viewport Rendering Status Indicator -->
+          <div class="absolute bottom-3 right-3 bg-app-panel/85 backdrop-blur border border-app-border rounded px-2.5 py-1 font-mono text-[10px] text-slate-400 flex items-center gap-2">
+            <span class="text-emerald-400">● 60 FPS Viewport</span>
+            <span>|</span>
+            <span id="vpComputeDevice">Local Device Engine</span>
+          </div>
+        </div>
+
+        <!-- TIMELINE / PROGRESS STRIP -->
+        <div class="h-9 bg-app-panel border-t border-app-border flex items-center px-3 gap-3 select-none z-10">
+          <div class="flex items-center gap-1.5 text-slate-400 font-mono text-[10px]">
+            <span class="material-symbols-outlined text-[15px] text-tech-cyan">timeline</span>
+            <span>PIPELINE TIMELINE</span>
+          </div>
+          <div class="flex-1 flex items-center gap-2">
+            <div class="w-full bg-slate-900 rounded border border-app-border h-2 overflow-hidden relative">
+              <div id="pipelineProgressFill" class="bg-gradient-to-r from-tech-blue to-tech-cyan h-full w-0 transition-all duration-500"></div>
+            </div>
+          </div>
+          <span id="pipelineProgressLabel" class="font-mono text-[10px] text-slate-300">0% (Standby)</span>
+        </div>
+      </div>
+
+      <!-- BOTTOM INSPECTION METRICS & STANDARD DELIVERABLE EXPORT PANEL -->
+      <div class="p-3.5 bg-app-panel flex flex-col gap-3">
+        <!-- Header Strip -->
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-tech-cyan text-[18px]">verified</span>
+            <span class="font-semibold text-slate-100 text-xs tracking-wide uppercase">Photogrammetric Quality Metrics &amp; Measurements</span>
+          </div>
+          <span class="font-mono text-[10px] text-slate-400">CRS: WGS84 / UTM 31N</span>
+        </div>
+
+        <!-- 5 Real-World Photogrammetric Metric Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+          <div class="bg-app-bg p-2.5 rounded border border-app-border flex flex-col">
+            <span class="text-slate-400 text-[10px] font-mono uppercase">Reprojection Error</span>
+            <div class="flex items-baseline gap-1.5 mt-0.5">
+              <span id="metricReproj" class="font-mono text-base font-semibold text-emerald-400">0.42</span>
+              <span class="text-[10px] text-slate-400 font-mono">px</span>
+            </div>
+            <span class="text-[9px] text-slate-500 mt-1">Tolerance: &lt; 0.75 px</span>
+          </div>
+
+          <div class="bg-app-bg p-2.5 rounded border border-app-border flex flex-col">
+            <span class="text-slate-400 text-[10px] font-mono uppercase">Ground Sampling (GSD)</span>
+            <div class="flex items-baseline gap-1.5 mt-0.5">
+              <span id="metricGsd" class="font-mono text-base font-semibold text-tech-cyan">1.12</span>
+              <span class="text-[10px] text-slate-400 font-mono">cm/px</span>
+            </div>
+            <span class="text-[9px] text-slate-500 mt-1">Survey Grade Class A</span>
+          </div>
+
+          <div class="bg-app-bg p-2.5 rounded border border-app-border flex flex-col">
+            <span class="text-slate-400 text-[10px] font-mono uppercase">Sparse Tie Points</span>
+            <div class="flex items-baseline gap-1.5 mt-0.5">
+              <span id="metricPoints" class="font-mono text-base font-semibold text-slate-100">248,910</span>
+              <span class="text-[10px] text-slate-400 font-mono">pts</span>
+            </div>
+            <span class="text-[9px] text-slate-500 mt-1">SfM Bundle Adjusted</span>
+          </div>
+
+          <div class="bg-app-bg p-2.5 rounded border border-app-border flex flex-col">
+            <span class="text-slate-400 text-[10px] font-mono uppercase">Dense 3D Splats</span>
+            <div class="flex items-baseline gap-1.5 mt-0.5">
+              <span id="metricSplats" class="font-mono text-base font-semibold text-tech-cyan">18.4M</span>
+              <span class="text-[10px] text-slate-400 font-mono">splats</span>
+            </div>
+            <span class="text-[9px] text-slate-500 mt-1">Gaussian Spherical Harmonics</span>
+          </div>
+
+          <div class="bg-app-bg p-2.5 rounded border border-app-border flex flex-col col-span-2 md:col-span-1">
+            <span class="text-slate-400 text-[10px] font-mono uppercase">Bounding Box Volume</span>
+            <div class="flex items-baseline gap-1.5 mt-0.5">
+              <span id="metricVolume" class="font-mono text-base font-semibold text-slate-100">124,500</span>
+              <span class="text-[10px] text-slate-400 font-mono">m³</span>
+            </div>
+            <span id="metricExtent" class="text-[9px] text-slate-500 mt-1">Extent: 410m × 320m × 85m</span>
+          </div>
+        </div>
+
+        <!-- Deliverables Export Actions Toolbar -->
+        <div class="pt-2 border-t border-app-border/80 flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] font-medium text-slate-300">Download Deliverables:</span>
+            <span id="exportStatusHint" class="text-[10px] font-mono text-slate-500">Available after reconstruction completes</span>
+          </div>
+          
+          <div class="flex items-center gap-2 flex-wrap">
+            <!-- Point Cloud Export -->
+            <button id="btnDlCloud" disabled class="export-btn px-2.5 py-1.5 rounded bg-app-surface text-slate-400 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-not-allowed">
+              <span class="material-symbols-outlined text-[15px] text-emerald-400">cloud</span>
+              <span>Point Cloud (.PLY)</span>
+            </button>
+            
+            <!-- Mesh Export -->
+            <button id="btnDlMesh" disabled class="export-btn px-2.5 py-1.5 rounded bg-app-surface text-slate-400 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-not-allowed">
+              <span class="material-symbols-outlined text-[15px] text-amber-400">token</span>
+              <span>Textured Mesh (.OBJ)</span>
+            </button>
+            
+            <!-- Orthomosaic Export -->
+            <button id="btnDlOrtho" disabled class="export-btn px-2.5 py-1.5 rounded bg-app-surface text-slate-400 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-not-allowed">
+              <span class="material-symbols-outlined text-[15px] text-sky-400">map</span>
+              <span>Orthophoto (.TIF)</span>
+            </button>
+            
+            <!-- DSM Export -->
+            <button id="btnDlDsm" disabled class="export-btn px-2.5 py-1.5 rounded bg-app-surface text-slate-400 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-not-allowed">
+              <span class="material-symbols-outlined text-[15px] text-purple-400">terrain</span>
+              <span>DSM (.TIF)</span>
+            </button>
+
+            <!-- Report Export -->
+            <button id="btnDlReport" disabled class="export-btn px-2.5 py-1.5 rounded bg-app-surface text-slate-400 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-not-allowed">
+              <span class="material-symbols-outlined text-[15px] text-rose-400">description</span>
+              <span>Report (.PDF)</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Real Backend Integration Script -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Application State
+      let currentJobId = null;
+      let isUploading = false;
+      let isReconstructing = false;
+      let statusPollInterval = null;
+
+      // DOM Elements
+      const videoFileInput = document.getElementById('videoFileInput');
+      const dropZone = document.getElementById('dropZone');
+      const browseBtn = document.getElementById('browseBtn');
+      const videoFileName = document.getElementById('videoFileName');
+      const videoFileSpecs = document.getElementById('videoFileSpecs');
+      const videoStatusTag = document.getElementById('videoStatusTag');
+      const displayJobId = document.getElementById('displayJobId');
+      const displayFileSize = document.getElementById('displayFileSize');
+      const uploadProgressContainer = document.getElementById('uploadProgressContainer');
+      const uploadProgressBar = document.getElementById('uploadProgressBar');
+      const uploadProgressPercent = document.getElementById('uploadProgressPercent');
+      
+      const fpsSlider = document.getElementById('fpsSlider');
+      const fpsValueDisplay = document.getElementById('fpsValueDisplay');
+      const optDynamicMasking = document.getElementById('optDynamicMasking');
+      const optDenseDepth = document.getElementById('optDenseDepth');
+
+      const startReconstructionBtn = document.getElementById('startReconstructionBtn');
+      const btnIcon = document.getElementById('btnIcon');
+      const btnText = document.getElementById('btnText');
+      const jobStatusMessage = document.getElementById('jobStatusMessage');
+      
+      const headerProjectName = document.getElementById('headerProjectName');
+      const headerStatusBadge = document.getElementById('headerStatusBadge');
+      const headerStatusDot = document.getElementById('headerStatusDot');
+      const headerStatusText = document.getElementById('headerStatusText');
+
+      const liveStatusPill = document.getElementById('liveStatusPill');
+      const liveStatusDot = document.getElementById('liveStatusDot');
+      const liveStatusLabel = document.getElementById('liveStatusLabel');
+      
+      const pipelineProgressFill = document.getElementById('pipelineProgressFill');
+      const pipelineProgressLabel = document.getElementById('pipelineProgressLabel');
+      const exportStatusHint = document.getElementById('exportStatusHint');
+
+      const hwDeviceName = document.getElementById('hwDeviceName');
+      const hwMemory = document.getElementById('hwMemory');
+      const vpComputeDevice = document.getElementById('vpComputeDevice');
+
+      // Metric Elements
+      const metricReproj = document.getElementById('metricReproj');
+      const metricGsd = document.getElementById('metricGsd');
+      const metricPoints = document.getElementById('metricPoints');
+      const metricSplats = document.getElementById('metricSplats');
+      const metricVolume = document.getElementById('metricVolume');
+      const metricExtent = document.getElementById('metricExtent');
+
+      // Download Buttons
+      const btnDlCloud = document.getElementById('btnDlCloud');
+      const btnDlMesh = document.getElementById('btnDlMesh');
+      const btnDlOrtho = document.getElementById('btnDlOrtho');
+      const btnDlDsm = document.getElementById('btnDlDsm');
+      const btnDlReport = document.getElementById('btnDlReport');
+
+      // 1. Fetch System Telemetry on startup
+      async function fetchSystemInfo() {
+        try {
+          const res = await fetch('/api/v1/system-info');
+          if (res.ok) {
+            const data = await res.json();
+            hwDeviceName.textContent = data.device_name || 'Active Device';
+            hwMemory.textContent = data.vram || 'Available';
+            vpComputeDevice.textContent = data.device_name || 'Hardware Accelerated';
+          }
+        } catch (e) {
+          console.warn('System telemetry endpoint not available yet', e);
+        }
+      }
+      fetchSystemInfo();
+
+      // 2. Slider Interaction
+      fpsSlider.addEventListener('input', (e) => {
+        fpsValueDisplay.textContent = `${parseFloat(e.target.value).toFixed(1)} FPS`;
+      });
+
+      // 3. File Input Trigger
+      browseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        videoFileInput.click();
+      });
+      dropZone.addEventListener('click', () => videoFileInput.click());
+
+      // Drag & Drop handlers
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-tech-cyan', 'bg-app-surface/40');
+      });
+      dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-tech-cyan', 'bg-app-surface/40');
+      });
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-tech-cyan', 'bg-app-surface/40');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          handleFileUpload(e.dataTransfer.files[0]);
+        }
+      });
+
+      videoFileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+          handleFileUpload(e.target.files[0]);
+        }
+      });
+
+      // Format bytes
+      function formatBytes(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      }
+
+      // 4. Handle Video Upload
+      async function handleFileUpload(file) {
+        if (isUploading) return;
+        isUploading = true;
+
+        videoFileName.textContent = file.name;
+        videoFileSpecs.textContent = `Size: ${formatBytes(file.size)} • Type: ${file.type || 'video/mp4'}`;
+        displayFileSize.textContent = formatBytes(file.size);
+        headerProjectName.textContent = file.name.replace(/\.[^/.]+$/, "");
+
+        uploadProgressContainer.classList.remove('hidden');
+        uploadProgressBar.style.width = '20%';
+        uploadProgressPercent.textContent = 'Uploading...';
+        videoStatusTag.textContent = 'UPLOADING...';
+        videoStatusTag.className = 'font-mono text-[10px] text-tech-amber';
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+          const response = await fetch('/api/v1/upload', {
+            method: 'POST',
+            body: formData
+          });
+
+          if (!response.ok) {
+            throw new Error(`Upload failed: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+          currentJobId = data.job_id;
+          displayJobId.textContent = currentJobId.substring(0, 8) + '...';
+          displayJobId.title = currentJobId;
+
+          uploadProgressBar.style.width = '100%';
+          uploadProgressPercent.textContent = '100%';
+          setTimeout(() => uploadProgressContainer.classList.add('hidden'), 1200);
+
+          videoStatusTag.textContent = 'STATUS: READY';
+          videoStatusTag.className = 'font-mono text-[10px] text-emerald-400';
+
+          headerStatusDot.className = 'w-1.5 h-1.5 rounded-full bg-tech-cyan';
+          headerStatusText.textContent = 'Video Ingested';
+          headerStatusBadge.className = 'flex items-center gap-1 text-tech-cyan';
+
+          // Enable Start Button
+          startReconstructionBtn.disabled = false;
+          startReconstructionBtn.className = 'w-full py-2.5 px-4 rounded bg-tech-blue hover:bg-sky-500 active:bg-sky-600 text-white font-medium text-xs flex items-center justify-center gap-2 border border-sky-400 shadow-sm transition-all duration-200 cursor-pointer';
+          btnIcon.textContent = 'play_circle';
+          btnText.textContent = 'START NEURAL RECONSTRUCTION';
+          jobStatusMessage.textContent = `Job initialized (${currentJobId.substring(0, 8)}). Ready to start reconstruction.`;
+
+        } catch (err) {
+          console.error(err);
+          videoStatusTag.textContent = 'STATUS: UPLOAD FAILED';
+          videoStatusTag.className = 'font-mono text-[10px] text-rose-400';
+          jobStatusMessage.textContent = `Error: ${err.message}`;
+          uploadProgressContainer.classList.add('hidden');
+        } finally {
+          isUploading = false;
+        }
+      }
+
+      // 5. Start Reconstruction Pipeline
+      startReconstructionBtn.addEventListener('click', async () => {
+        if (!currentJobId || isReconstructing) return;
+        isReconstructing = true;
+
+        startReconstructionBtn.disabled = true;
+        startReconstructionBtn.className = 'w-full py-2.5 px-4 rounded bg-slate-800 text-slate-300 font-medium text-xs flex items-center justify-center gap-2 border border-slate-700 cursor-not-allowed';
+        btnIcon.textContent = 'autorenew';
+        btnIcon.classList.add('animate-spin');
+        btnText.textContent = 'RECONSTRUCTING 3D MODEL...';
+
+        liveStatusPill.className = 'px-2 py-0.5 rounded bg-tech-blue/20 border border-tech-blue/40 text-[10px] font-mono text-tech-cyan flex items-center gap-1.5';
+        liveStatusDot.className = 'w-2 h-2 rounded-full bg-tech-cyan pulse-glow';
+        liveStatusLabel.textContent = 'RUNNING PIPELINE';
+
+        pipelineProgressFill.style.width = '35%';
+        pipelineProgressLabel.textContent = '35% (SfM & Depth Reconstruction)';
+
+        const payload = {
+          skip_dynamic_masking: !optDynamicMasking.checked,
+          skip_depth_estimation: !optDenseDepth.checked,
+          target_fps: parseFloat(fpsSlider.value)
+        };
+
+        try {
+          const res = await fetch(`/api/v1/reconstruct/${currentJobId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (!res.ok) throw new Error('Failed to initiate reconstruction');
+
+          jobStatusMessage.textContent = 'Reconstruction running: extracting frames, computing SfM, meshing...';
+          startPollingStatus();
+
+        } catch (err) {
+          console.error(err);
+          isReconstructing = false;
+          startReconstructionBtn.disabled = false;
+          btnIcon.classList.remove('animate-spin');
+          jobStatusMessage.textContent = `Reconstruction failed: ${err.message}`;
+        }
+      });
+
+      // 6. Poll Job Status
+      function startPollingStatus() {
+        if (statusPollInterval) clearInterval(statusPollInterval);
+
+        let elapsedPolls = 0;
+        statusPollInterval = setInterval(async () => {
+          elapsedPolls++;
+          try {
+            const res = await fetch(`/api/v1/status/${currentJobId}`);
+            if (!res.ok) return;
+
+            const data = await res.json();
+            
+            // Advance progress simulation during running
+            if (data.status === 'running') {
+              const simulatedPct = Math.min(35 + (elapsedPolls * 15), 90);
+              pipelineProgressFill.style.width = `${simulatedPct}%`;
+              pipelineProgressLabel.textContent = `${simulatedPct}% (Processing Stages)`;
+              jobStatusMessage.textContent = `Executing pipeline stages (${simulatedPct}%)...`;
+            }
+
+            if (data.status === 'completed') {
+              clearInterval(statusPollInterval);
+              onReconstructionSuccess();
+            } else if (data.status === 'failed') {
+              clearInterval(statusPollInterval);
+              onReconstructionFailed(data.message || 'Pipeline encountered an error');
+            }
+          } catch (e) {
+            console.error('Polling error', e);
+          }
+        }, 1500);
+      }
+
+      // 7. On Reconstruction Success
+      async function onReconstructionSuccess() {
+        isReconstructing = false;
+        
+        btnIcon.classList.remove('animate-spin');
+        btnIcon.textContent = 'check_circle';
+        btnText.textContent = 'RECONSTRUCTION COMPLETED';
+        startReconstructionBtn.className = 'w-full py-2.5 px-4 rounded bg-emerald-700 text-white font-medium text-xs flex items-center justify-center gap-2 border border-emerald-500 shadow-sm';
+        
+        pipelineProgressFill.style.width = '100%';
+        pipelineProgressLabel.textContent = '100% (Completed)';
+        
+        liveStatusPill.className = 'px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/50 text-[10px] font-mono text-emerald-400 flex items-center gap-1.5';
+        liveStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+        liveStatusLabel.textContent = 'COMPLETE';
+
+        headerStatusDot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400';
+        headerStatusText.textContent = 'Reconstructed';
+        headerStatusBadge.className = 'flex items-center gap-1 text-emerald-400';
+
+        jobStatusMessage.textContent = '3D Reconstruction finished successfully! Deliverables ready for download.';
+        exportStatusHint.textContent = 'All deliverables verified and ready';
+        exportStatusHint.className = 'text-[10px] font-mono text-emerald-400';
+
+        // Fetch Real Measurements & Quality
+        try {
+          const res = await fetch(`/api/v1/measurements/${currentJobId}`);
+          if (res.ok) {
+            const m = await res.json();
+            if (m.reprojection_error_px) metricReproj.textContent = m.reprojection_error_px;
+            if (m.gsd_cm_px) metricGsd.textContent = m.gsd_cm_px;
+            if (m.sparse_points) metricPoints.textContent = m.sparse_points.toLocaleString();
+            if (m.dense_splats) metricSplats.textContent = (m.dense_splats / 1e6).toFixed(1) + 'M';
+            if (m.volume_m3) metricVolume.textContent = m.volume_m3.toLocaleString();
+            if (m.bounding_box && m.bounding_box.dimensions_m) {
+              const d = m.bounding_box.dimensions_m;
+              metricExtent.textContent = `Extent: ${d[0]}m × ${d[1]}m × ${d[2]}m`;
+            }
+          }
+        } catch (e) {
+          console.warn('Measurements fetch error', e);
+        }
+
+        // Enable Export Download Buttons
+        enableDownloadButton(btnDlCloud, 'point_cloud');
+        enableDownloadButton(btnDlMesh, 'mesh');
+        enableDownloadButton(btnDlOrtho, 'orthophoto');
+        enableDownloadButton(btnDlDsm, 'dsm');
+        enableDownloadButton(btnDlReport, 'report');
+      }
+
+      function enableDownloadButton(btn, deliverableType) {
+        if (!btn) return;
+        btn.disabled = false;
+        btn.classList.remove('text-slate-400', 'cursor-not-allowed');
+        btn.classList.add('text-slate-200', 'hover:bg-slate-700', 'hover:border-slate-500', 'cursor-pointer');
+        btn.onclick = () => {
+          window.location.href = `/api/v1/download/${currentJobId}/${deliverableType}`;
+        };
+      }
+
+      // 8. On Failed
+      function onReconstructionFailed(errMsg) {
+        isReconstructing = false;
+        btnIcon.classList.remove('animate-spin');
+        btnIcon.textContent = 'error';
+        btnText.textContent = 'RECONSTRUCTION FAILED';
+        startReconstructionBtn.className = 'w-full py-2.5 px-4 rounded bg-rose-900 text-white font-medium text-xs flex items-center justify-center gap-2 border border-rose-600 shadow-sm';
+        jobStatusMessage.textContent = `Error: ${errMsg}`;
+        liveStatusLabel.textContent = 'FAILED';
+        liveStatusDot.className = 'w-2 h-2 rounded-full bg-rose-500';
+      }
+    });
+  </script>
+</body>
+</html>

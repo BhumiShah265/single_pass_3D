@@ -1,6 +1,9 @@
 import argparse
 import uvicorn
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pathlib import Path
 from app.api.routes import router
 from app.pipeline import ReconstructionPipeline
 from app.config import PipelineConfig, logger
@@ -8,11 +11,23 @@ from app.config import PipelineConfig, logger
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
-        title="VID-IMG Reconstruction API",
-        description="API for drone video to 3D model reconstruction pipeline",
+        title="AeroSynth 3D Reconstruction API",
+        description="Engineering Neural Photogrammetry Studio API",
         version="1.0.0"
     )
     app.include_router(router)
+    
+    # Mount frontend and static assets
+    frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+    if frontend_dir.exists():
+        assets_dir = frontend_dir / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+        
+        @app.get("/", include_in_schema=False)
+        async def serve_index():
+            return FileResponse(str(frontend_dir / "index.html"))
+
     return app
 
 def run_server(host: str, port: int):
