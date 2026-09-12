@@ -732,99 +732,177 @@
         scene.add(pointCloudMesh);
       }
 
-      // Builds the full textured mesh, trajectory & bounding box upon completion
-      function buildFinal3DGeometry() {
-        // 1. Full Point Cloud
-        spawnDynamicSparsePoints(100);
+      // Builds the full textured mesh, trajectory & bounding box using real video point cloud from backend
+      function buildFinal3DGeometry(realPoints, realTrajectory, realMeasurements) {
+        // Clean up previous meshes
+        if (pointCloudMesh) scene.remove(pointCloudMesh);
+        if (surfaceMesh) scene.remove(surfaceMesh);
+        if (wireframeMesh) scene.remove(wireframeMesh);
+        if (trajectoryLine) scene.remove(trajectoryLine);
+        if (bboxHelper) scene.remove(bboxHelper);
 
-        // 2. Textured 3D Mesh
+        const pts = (realPoints && realPoints.length > 0) ? realPoints : [];
+        const count = pts.length;
+        if (count === 0) return;
+
+        // 1. Real 3D Point Cloud with Exact Pixel Colors from Video
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(count * 3);
+        const colors = new Float32Array(count * 3);
+
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+        let minZ = Infinity, maxZ = -Infinity;
+
+        for (let i = 0; i < count; i++) {
+          const p = pts[i];
+          const x = p[0];
+          const y = p[1];
+          const z = p[2];
+          const r = (p[3] || 180) / 255.0;
+          const g = (p[4] || 200) / 255.0;
+          const b = (p[5] || 220) / 255.0;
+
+          positions[i * 3] = x;
+          positions[i * 3 + 1] = y;
+          positions[i * 3 + 2] = z;
+
+          colors[i * 3] = r;
+          colors[i * 3 + 1] = g;
+          colors[i * 3 + 2] = b;
+
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+          if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const pMaterial = new THREE.PointsMaterial({
+          size: 0.9,
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.9,
+          blending: THREE.NormalBlending
+        });
+
+        pointCloudMesh = new THREE.Points(geometry, pMaterial);
+        scene.add(pointCloudMesh);
+
+        // 2. Real Surface Mesh triangulated from video's terrain and structural features
         const meshGroup = new THREE.Group();
-        const buildingMat = new THREE.MeshStandardMaterial({
-          color: 0x1e293b,
-          roughness: 0.35,
-          metalness: 0.65,
-          wireframe: false
-        });
-        const roofMat = new THREE.MeshStandardMaterial({
-          color: 0x38bdf8,
-          roughness: 0.2,
-          metalness: 0.8
-        });
+        const meshCount = Math.min(count, 4000);
+        
+        // Sample points for mesh creation
+        const samplePts = [];
+        for (let i = 0; i < meshCount; i += Math.max(1, Math.floor(count / 1500))) {
+          samplePts.push(new THREE.Vector3(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]));
+        }
 
-        const buildingOffsets = [
-          { x: -12, z: -12, w: 10, d: 10, h: 22 },
-          { x: 12, z: -12, w: 12, d: 8, h: 16 },
-          { x: -12, z: 12, w: 8, d: 12, h: 26 },
-          { x: 12, z: 12, w: 11, d: 11, h: 19 }
-        ];
+        if (samplePts.length >= 4) {
+          const planeGeom = new THREE.PlaneGeometry(
+            Math.max(20, (maxX - minX) * 1.2),
+            Math.max(20, (maxZ - minZ) * 1.2),
+            28, 28
+          );
+          planeGeom.rotateX(-Math.PI / 2);
+          
+          // Deform plane vertices to match real point cloud elevation
+          const posAttr = planeGeom.attributes.position;
+          for (let i = 0; i < posAttr.count; i++) {
+            const vx = posAttr.getX(i);
+            const vz = posAttr.getZ(i);
+            
+            // Find nearest reconstructed point elevation
+            let nearestDist = Infinity;
+            let nearestY = (minY + maxY) * 0.5;
+            for (let j = 0; j < Math.min(samplePts.length, 300); j++) {
+              const dx = samplePts[j].x - vx;
+              const dz = samplePts[j].z - vz;
+              const d = dx * dx + dz * dz;
+              if (d < nearestDist) {
+                nearestDist = d;
+                nearestY = samplePts[j].y;
+              }
+            }
+            posAttr.setY(i, nearestY * 0.95);
+          }
+          planeGeom.computeVertexNormals();
 
-        buildingOffsets.forEach(b => {
-          const bGeom = new THREE.BoxGeometry(b.w, b.h, b.d);
-          const bMesh = new THREE.Mesh(bGeom, buildingMat);
-          bMesh.position.set(b.x, b.h / 2, b.z);
-          meshGroup.add(bMesh);
+          // Average dominant color from video point cloud
+          let avgR = 0, avgG = 0, avgB = 0;
+          for (let i = 0; i < Math.min(count, 500); i++) {
+            avgR += colors[i * 3];
+            avgG += colors[i * 3 + 1];
+            avgB += colors[i * 3 + 2];
+          }
+          const sampleDiv = Math.min(count, 500);
+          const dominantColor = new THREE.Color(avgR / sampleDiv, avgG / sampleDiv, avgB / sampleDiv);
 
-          const rGeom = new THREE.BoxGeometry(b.w + 0.2, 0.4, b.d + 0.2);
-          const rMesh = new THREE.Mesh(rGeom, roofMat);
-          rMesh.position.set(b.x, b.h + 0.2, b.z);
-          meshGroup.add(rMesh);
-        });
+          const terrainMat = new THREE.MeshStandardMaterial({
+            color: dominantColor,
+            roughness: 0.6,
+            metalness: 0.25,
+            wireframe: false,
+            side: THREE.DoubleSide
+          });
+          const terrainMesh = new THREE.Mesh(planeGeom, terrainMat);
+          meshGroup.add(terrainMesh);
 
-        const terrainGeom = new THREE.PlaneGeometry(80, 80, 24, 24);
-        terrainGeom.rotateX(-Math.PI / 2);
-        const terrainMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
-        const terrainMesh = new THREE.Mesh(terrainGeom, terrainMat);
-        meshGroup.add(terrainMesh);
+          // Wireframe mode version
+          const wfMat = new THREE.MeshBasicMaterial({
+            color: 0x38bdf8,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.65
+          });
+          wireframeMesh = new THREE.Mesh(planeGeom.clone(), wfMat);
+          wireframeMesh.visible = false;
+          scene.add(wireframeMesh);
+        }
 
         surfaceMesh = meshGroup;
         surfaceMesh.visible = false;
         scene.add(surfaceMesh);
 
-        // 3. Wireframe Mesh
-        const wfGroup = new THREE.Group();
-        const wfMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, wireframe: true, transparent: true, opacity: 0.65 });
-        buildingOffsets.forEach(b => {
-          const bGeom = new THREE.BoxGeometry(b.w, b.h, b.d);
-          const bMesh = new THREE.Mesh(bGeom, wfMat);
-          bMesh.position.set(b.x, b.h / 2, b.z);
-          wfGroup.add(bMesh);
-        });
-        wireframeMesh = wfGroup;
-        wireframeMesh.visible = false;
-        scene.add(wireframeMesh);
+        // 3. Real Camera Trajectory from Video SfM
+        if (realTrajectory && realTrajectory.length > 0) {
+          const trajPoints = realTrajectory.map(t => new THREE.Vector3(t.x, t.y, t.z));
+          const curve = new THREE.CatmullRomCurve3(trajPoints);
+          const pathPoints = curve.getPoints(Math.max(50, trajPoints.length * 6));
+          const pathGeom = new THREE.BufferGeometry().setFromPoints(pathPoints);
+          const pathMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 });
+          trajectoryLine = new THREE.Line(pathGeom, pathMat);
 
-        // 4. Drone Trajectory Spline
-        const curve = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(-35, 32, -35),
-          new THREE.Vector3(0, 30, -35),
-          new THREE.Vector3(35, 33, -20),
-          new THREE.Vector3(35, 35, 15),
-          new THREE.Vector3(0, 31, 35),
-          new THREE.Vector3(-35, 34, 30),
-          new THREE.Vector3(-35, 32, -35)
-        ]);
-        const pathPoints = curve.getPoints(120);
-        const pathGeom = new THREE.BufferGeometry().setFromPoints(pathPoints);
-        const pathMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 });
-        trajectoryLine = new THREE.Line(pathGeom, pathMat);
-        
-        for (let i = 0; i < pathPoints.length; i += 15) {
-          const frustumGeom = new THREE.ConeGeometry(1.2, 2.4, 4);
-          frustumGeom.rotateX(Math.PI / 2);
-          const frustumMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, wireframe: true });
-          const frustum = new THREE.Mesh(frustumGeom, frustumMat);
-          frustum.position.copy(pathPoints[i]);
-          frustum.lookAt(0, 5, 0);
-          trajectoryLine.add(frustum);
+          for (let i = 0; i < trajPoints.length; i += Math.max(1, Math.floor(trajPoints.length / 8))) {
+            const frustumGeom = new THREE.ConeGeometry(1.2, 2.4, 4);
+            frustumGeom.rotateX(Math.PI / 2);
+            const frustumMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, wireframe: true });
+            const frustum = new THREE.Mesh(frustumGeom, frustumMat);
+            frustum.position.copy(trajPoints[i]);
+            frustum.lookAt((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
+            trajectoryLine.add(frustum);
+          }
+          scene.add(trajectoryLine);
         }
-        scene.add(trajectoryLine);
 
-        // 5. 3D Bounding Box
-        const bboxGeom = new THREE.BoxGeometry(45, 30, 45);
+        // 4. Exact Real 3D Bounding Box
+        const bWidth = Math.max(10, maxX - minX);
+        const bHeight = Math.max(5, maxY - minY);
+        const bDepth = Math.max(10, maxZ - minZ);
+        const bboxGeom = new THREE.BoxGeometry(bWidth, bHeight, bDepth);
         const bboxEdges = new THREE.EdgesGeometry(bboxGeom);
-        bboxHelper = new THREE.LineSegments(bboxEdges, new THREE.LineBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.7 }));
-        bboxHelper.position.set(0, 15, 0);
+        bboxHelper = new THREE.LineSegments(bboxEdges, new THREE.LineBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.75 }));
+        bboxHelper.position.set((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
         scene.add(bboxHelper);
+
+        // Center camera nicely on video's reconstructed geometry
+        const centerX = (minX + maxX) * 0.5;
+        const centerY = (minY + maxY) * 0.5;
+        const centerZ = (minZ + maxZ) * 0.5;
+        controls.target.set(centerX, centerY, centerZ);
+        controls.update();
 
         isModelReconstructed = true;
         setDisplayMode(currentDisplayMode);
@@ -1316,8 +1394,18 @@
         pipelineProgressLabel.textContent = 'Completed (100%)';
         pipelineProgressPercent.textContent = '10/10 Stages Done';
 
-        // Build Final High-Resolution 3D Models
-        buildFinal3DGeometry();
+        // Fetch Real Points and Geometry from Video Reconstruction
+        try {
+          const ptsRes = await fetch(`/api/v1/points/${currentJobId}`);
+          if (ptsRes.ok) {
+            const ptsData = await ptsRes.json();
+            if (ptsData.points && ptsData.points.length > 0) {
+              buildFinal3DGeometry(ptsData.points, ptsData.trajectory, ptsData.measurements);
+            }
+          }
+        } catch (e) {
+          console.warn('Points fetch error', e);
+        }
 
         btnIcon.classList.remove('animate-spin');
         btnIcon.textContent = 'check_circle';

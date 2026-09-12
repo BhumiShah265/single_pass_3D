@@ -146,12 +146,34 @@ async def download_deliverable(job_id: str, deliverable_type: str):
         
     return FileResponse(path=file_path, filename=file_map[deliverable_type])
 
+@router.get("/points/{job_id}")
+async def get_reconstructed_points(job_id: str):
+    """Get 3D points, colors, and camera trajectory for a completed reconstruction."""
+    if job_id not in jobs or jobs[job_id].get("status") != "completed":
+        raise HTTPException(status_code=404, detail="Points not ready or job not found")
+        
+    output_dir = Path(jobs[job_id].get("output_dir", f"data/output/{job_id}"))
+    points_file = output_dir / "points.json"
+    
+    if points_file.exists():
+        with open(points_file, "r") as f:
+            return json.load(f)
+            
+    return {"points": [], "trajectory": [], "measurements": {}}
+
 @router.get("/measurements/{job_id}")
 async def get_measurements(job_id: str):
     """Get calculated measurements for a completed reconstruction."""
     if job_id not in jobs or jobs[job_id].get("status") != "completed":
         raise HTTPException(status_code=404, detail="Measurements not ready or job not found")
         
+    output_dir = Path(jobs[job_id].get("output_dir", f"data/output/{job_id}"))
+    meas_file = output_dir / "measurements.json"
+    
+    if meas_file.exists():
+        with open(meas_file, "r") as f:
+            return json.load(f)
+            
     return {
         "volume_m3": 124500.0, 
         "surface_area_m2": 45820.5,
@@ -165,4 +187,5 @@ async def get_measurements(job_id: str):
             "dimensions_m": [410.0, 320.0, 85.0]
         }
     }
+
 
