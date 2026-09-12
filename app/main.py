@@ -30,11 +30,12 @@ def create_app() -> FastAPI:
 
     return app
 
-def run_server(host: str, port: int):
+app = create_app()
+
+def run_server(host: str, port: int, reload: bool = True):
     """Run the FastAPI server using uvicorn."""
     logger.info(f"Starting server on {host}:{port}")
-    app = create_app()
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run("app.main:app", host=host, port=port, reload=reload)
 
 def run_cli(args):
     """Run the reconstruction pipeline via CLI."""
