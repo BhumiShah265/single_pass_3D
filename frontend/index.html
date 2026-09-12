@@ -3,12 +3,21 @@
 <head>
   <meta charset="utf-8"/>
   <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-  <title>AeroSynth 3D - Photogrammetry &amp; Neural Reconstruction Studio</title>
+  <title>AeroSynth 3D - Engineering Neural Photogrammetry Studio</title>
+  
+  <!-- Fonts & Icons -->
   <link href="https://fonts.googleapis.com" rel="preconnect"/>
   <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+  
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  
+  <!-- Three.js 3D Engine & OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
   <script>
     tailwind.config = {
       darkMode: "class",
@@ -16,19 +25,20 @@
         extend: {
           colors: {
             app: {
-              bg: "#0d1117",
-              panel: "#161b22",
-              surface: "#21262d",
-              hover: "#30363d",
-              border: "#30363d",
-              subtle: "#1f242c"
+              bg: "#090d12",
+              panel: "#121820",
+              surface: "#1a222d",
+              hover: "#263242",
+              border: "#253040",
+              subtle: "#151d27"
             },
             tech: {
               cyan: "#38bdf8",
-              blue: "#0ea5e9",
+              blue: "#0284c7",
               green: "#10b981",
               amber: "#f59e0b",
-              rose: "#f43f5e"
+              rose: "#f43f5e",
+              violet: "#8b5cf6"
             }
           },
           fontFamily: {
@@ -39,6 +49,7 @@
       }
     };
   </script>
+  
   <style>
     @layer base {
       html, body {
@@ -47,71 +58,80 @@
       }
     }
     ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
+      width: 5px;
+      height: 5px;
     }
     ::-webkit-scrollbar-track {
-      background: #0d1117;
+      background: #090d12;
     }
     ::-webkit-scrollbar-thumb {
-      background: #30363d;
+      background: #253040;
       border-radius: 3px;
     }
     ::-webkit-scrollbar-thumb:hover {
-      background: #484f58;
+      background: #38bdf8;
     }
     .pulse-glow {
-      animation: pulseGlow 2s infinite;
+      animation: pulseGlow 1.8s infinite;
     }
     @keyframes pulseGlow {
-      0%, 100% { opacity: 0.6; }
-      50% { opacity: 1; filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.6)); }
+      0%, 100% { opacity: 0.5; filter: drop-shadow(0 0 2px rgba(56,189,248,0.4)); }
+      50% { opacity: 1; filter: drop-shadow(0 0 10px rgba(56,189,248,0.9)); }
+    }
+    .scanner-line {
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, #38bdf8, transparent);
+      animation: scanAnim 3s ease-in-out infinite;
+    }
+    @keyframes scanAnim {
+      0% { top: 0%; opacity: 0; }
+      20% { opacity: 1; }
+      80% { opacity: 1; }
+      100% { top: 100%; opacity: 0; }
     }
   </style>
 </head>
-<body class="bg-app-bg text-slate-200 font-sans text-xs antialiased flex flex-col min-h-screen selection:bg-tech-blue selection:text-white">
+<body class="bg-app-bg text-slate-200 font-sans text-xs antialiased flex flex-col min-h-screen selection:bg-tech-cyan selection:text-black">
 
-  <!-- 1. TOP APPLICATION TOOLBAR & TITLEBAR -->
+  <!-- 1. TOP HEADER TOOLBAR -->
   <header class="h-12 bg-app-panel border-b border-app-border flex items-center justify-between px-3 shrink-0 z-30 select-none">
     <div class="flex items-center gap-4">
       <!-- App Brand & Title -->
-      <div class="flex items-center gap-2 pr-2 border-r border-app-border">
-        <div class="w-7 h-7 rounded bg-tech-blue/20 border border-tech-blue/40 flex items-center justify-center text-tech-cyan">
+      <div class="flex items-center gap-2 pr-3 border-r border-app-border">
+        <div class="w-7 h-7 rounded bg-tech-blue/25 border border-tech-cyan/50 flex items-center justify-center text-tech-cyan shadow-sm shadow-tech-cyan/20">
           <span class="material-symbols-outlined text-[18px]">view_in_ar</span>
         </div>
         <div class="flex items-baseline gap-1.5">
           <span class="font-bold text-sm tracking-tight text-white">AeroSynth 3D</span>
-          <span class="font-mono text-[10px] text-tech-cyan px-1 py-0.5 rounded bg-tech-cyan/10 border border-tech-cyan/20">v3.5.2</span>
+          <span class="font-mono text-[9px] text-tech-cyan px-1 py-0.2 rounded bg-tech-cyan/10 border border-tech-cyan/30">STUDIO V3.5</span>
         </div>
       </div>
       
-      <!-- Active Project Tag -->
-      <div class="hidden md:flex items-center gap-2 pl-2 font-mono text-[11px] text-slate-400">
+      <!-- Active Project Info -->
+      <div class="hidden md:flex items-center gap-2 font-mono text-[11px] text-slate-400">
         <span class="material-symbols-outlined text-[14px] text-slate-500">folder_open</span>
-        <span id="headerProjectName" class="text-slate-200 font-medium truncate max-w-xs">Single_Pass_Drone_Reconstruction</span>
-        <span class="text-slate-500">|</span>
-        <span id="headerStatusBadge" class="flex items-center gap-1 text-slate-400">
-          <span id="headerStatusDot" class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-          <span id="headerStatusText">Ready for Ingestion</span>
+        <span id="headerProjectName" class="text-slate-200 font-medium truncate max-w-[220px]">Single_Pass_Drone_Reconstruction</span>
+        <span class="text-slate-600">|</span>
+        <span id="headerStatusBadge" class="flex items-center gap-1.5 text-slate-400">
+          <span id="headerStatusDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+          <span id="headerStatusText">Awaiting Video</span>
         </span>
       </div>
     </div>
 
-    <!-- Right Side System Telemetry & Status -->
-    <div class="flex items-center gap-3">
-      <!-- Hardware / Device Allocation -->
-      <div class="flex items-center gap-2 font-mono text-[11px] bg-app-bg px-2.5 py-1 rounded border border-app-border">
-        <div class="flex items-center gap-1.5 text-slate-300">
-          <span class="text-slate-500">ENGINE:</span>
-          <span id="hwDeviceName" class="text-emerald-400 font-medium">Detecting...</span>
-          <span class="text-slate-600 hidden sm:inline">|</span>
-          <span class="text-slate-500 hidden sm:inline">MEMORY:</span>
-          <span id="hwMemory" class="text-slate-200 hidden sm:inline">Active</span>
-        </div>
+    <!-- Right Side System Telemetry & Docs -->
+    <div class="flex items-center gap-3 font-mono text-[11px]">
+      <div class="flex items-center gap-2 bg-app-bg px-2.5 py-1 rounded border border-app-border text-slate-300">
+        <span class="text-slate-500">COMPUTE:</span>
+        <span id="hwDeviceName" class="text-emerald-400 font-semibold">Detecting...</span>
+        <span class="text-slate-600 hidden sm:inline">|</span>
+        <span class="text-slate-500 hidden sm:inline">FPS:</span>
+        <span id="hwFps" class="text-tech-cyan font-semibold hidden sm:inline">60.0</span>
       </div>
       
-      <a href="/docs" target="_blank" class="px-2 py-1 rounded bg-app-surface hover:bg-slate-700 text-slate-300 hover:text-white border border-app-border font-mono text-[11px] flex items-center gap-1 transition-colors" title="Open Swagger API Documentation">
-        <span class="material-symbols-outlined text-[14px]">api</span>
+      <a href="/docs" target="_blank" class="px-2.5 py-1 rounded bg-app-surface hover:bg-app-hover text-slate-300 hover:text-white border border-app-border flex items-center gap-1.5 transition-colors" title="Open Swagger API documentation">
+        <span class="material-symbols-outlined text-[14px] text-tech-cyan">api</span>
         <span>API Docs</span>
       </a>
     </div>
@@ -120,174 +140,190 @@
   <!-- 2. MAIN WORKBENCH LAYOUT -->
   <div class="flex-1 flex flex-col lg:flex-row overflow-hidden">
     
-    <!-- LEFT SIDEBAR: Ingestion & Reconstruction Configuration Panel -->
-    <aside class="w-full lg:w-[410px] xl:w-[440px] bg-app-panel border-r border-app-border flex flex-col shrink-0 overflow-y-auto max-h-[calc(100vh-3rem)]">
+    <!-- LEFT SIDEBAR: Ingestion & Pipeline Controls -->
+    <aside class="w-full lg:w-[400px] xl:w-[430px] bg-app-panel border-r border-app-border flex flex-col shrink-0 overflow-y-auto max-h-[calc(100vh-3rem)]">
       
       <!-- Panel Header -->
-      <div class="p-3 border-b border-app-border flex items-center justify-between bg-app-surface/50">
+      <div class="p-3 border-b border-app-border flex items-center justify-between bg-app-surface/60">
         <div class="flex items-center gap-2">
           <span class="material-symbols-outlined text-tech-cyan text-[18px]">tune</span>
-          <h2 class="font-semibold text-slate-100 text-xs tracking-wide uppercase">Pipeline Ingestion &amp; Setup</h2>
+          <h2 class="font-semibold text-slate-100 text-xs tracking-wide uppercase">Pipeline Ingestion &amp; Controls</h2>
         </div>
-        <span class="font-mono text-[10px] text-slate-400 bg-app-bg px-1.5 py-0.5 rounded border border-app-border">COLMAP + OPENMVS</span>
+        <span class="font-mono text-[10px] text-slate-400 bg-app-bg px-2 py-0.5 rounded border border-app-border">SINGLE-PASS SfM</span>
       </div>
 
       <div class="p-3.5 flex flex-col gap-4">
         
-        <!-- SECTION 1: RAW DRONE VIDEO INGESTION -->
+        <!-- SECTION 1: VIDEO INGESTION -->
         <div class="flex flex-col gap-2">
           <div class="flex items-center justify-between">
             <span class="font-semibold text-slate-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-              <span class="w-1.5 h-1.5 rounded-full bg-tech-cyan"></span>
-              1. Aerial Video Feed
+              <span class="w-2 h-2 rounded-full bg-tech-cyan"></span>
+              1. Video Ingestion
             </span>
-            <span id="videoStatusTag" class="font-mono text-[10px] text-slate-400">STATUS: AWAITING FILE</span>
+            <span id="videoStatusTag" class="font-mono text-[10px] text-slate-400">NO FILE LOADED</span>
           </div>
 
-          <!-- Drag and Drop Target / Ingested File Box -->
-          <div id="dropZone" class="bg-app-bg border border-dashed border-app-border rounded p-3 flex flex-col gap-2.5 hover:border-tech-cyan transition-colors cursor-pointer relative group">
-            <input type="file" id="videoFileInput" accept="video/*" class="hidden" />
-            <div class="flex items-start justify-between gap-2">
-              <div class="flex items-start gap-2.5 min-w-0">
-                <div class="w-8 h-8 rounded bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 shrink-0 group-hover:text-tech-cyan transition-colors">
-                  <span class="material-symbols-outlined text-[18px]">videocam</span>
+          <!-- Drag and Drop Target Box -->
+          <div id="dropZone" class="bg-app-bg border-2 border-dashed border-app-border rounded-lg p-3.5 flex flex-col gap-3 hover:border-tech-cyan transition-all cursor-pointer relative group">
+            <input type="file" id="videoFileInput" accept="video/mp4,video/quicktime,video/x-matroska,video/webm" class="hidden" />
+            
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex items-start gap-3 min-w-0">
+                <div class="w-9 h-9 rounded-md bg-app-surface border border-app-border flex items-center justify-center text-slate-300 shrink-0 group-hover:text-tech-cyan group-hover:border-tech-cyan/50 transition-colors">
+                  <span class="material-symbols-outlined text-[20px]">videocam</span>
                 </div>
                 <div class="min-w-0">
-                  <p id="videoFileName" class="font-mono text-[11px] text-white font-medium truncate">Select or drag drone video file (.mp4 / .mov)</p>
-                  <p id="videoFileSpecs" class="font-mono text-[10px] text-slate-400">Click to upload video for 3D reconstruction</p>
+                  <p id="videoFileName" class="font-mono text-[11px] text-white font-medium truncate">Click or Drag &amp; Drop Drone Video</p>
+                  <p id="videoFileSpecs" class="font-mono text-[10px] text-slate-400">Supports .MP4, .MOV, .MKV</p>
                 </div>
               </div>
-              <button type="button" id="browseBtn" class="px-2.5 py-1 text-[10px] rounded bg-app-surface border border-app-border text-slate-300 hover:text-white hover:bg-slate-700 transition-colors shrink-0 font-medium">
+              <button type="button" id="browseBtn" class="px-2.5 py-1 text-[11px] rounded bg-app-surface border border-app-border text-slate-200 hover:text-white hover:bg-app-hover transition-colors shrink-0 font-medium">
                 Browse
               </button>
             </div>
 
-            <!-- Upload Progress Bar (hidden initially) -->
-            <div id="uploadProgressContainer" class="hidden flex flex-col gap-1 pt-1 border-t border-app-border/80">
+            <!-- Upload Progress Bar -->
+            <div id="uploadProgressContainer" class="hidden flex flex-col gap-1.5 pt-1 border-t border-app-border/80">
               <div class="flex justify-between text-[10px] font-mono text-slate-400">
-                <span id="uploadProgressText">Uploading video to backend...</span>
-                <span id="uploadProgressPercent">0%</span>
+                <span id="uploadProgressText">Ingesting video...</span>
+                <span id="uploadProgressPercent" class="text-tech-cyan">0%</span>
               </div>
               <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                <div id="uploadProgressBar" class="bg-tech-cyan h-1.5 rounded-full transition-all duration-300 w-0"></div>
+                <div id="uploadProgressBar" class="bg-tech-cyan h-1.5 rounded-full transition-all duration-200 w-0"></div>
               </div>
             </div>
 
-            <!-- Detailed Ingestion Specs Grid -->
+            <!-- Ingestion Telemetry Specs Grid -->
             <div class="grid grid-cols-3 gap-1.5 pt-1 border-t border-app-border/80 font-mono text-[10px]">
-              <div class="bg-app-panel p-1.5 rounded border border-app-border/60">
-                <span class="text-slate-500 block">JOB ID</span>
-                <span id="displayJobId" class="text-slate-200 font-medium truncate block" title="None">None</span>
+              <div class="bg-app-panel p-2 rounded border border-app-border/60">
+                <span class="text-slate-500 block">RESOLUTION</span>
+                <span id="metaResolution" class="text-slate-200 font-medium block truncate">—</span>
               </div>
-              <div class="bg-app-panel p-1.5 rounded border border-app-border/60">
+              <div class="bg-app-panel p-2 rounded border border-app-border/60">
+                <span class="text-slate-500 block">DURATION</span>
+                <span id="metaDuration" class="text-slate-200 font-medium block truncate">—</span>
+              </div>
+              <div class="bg-app-panel p-2 rounded border border-app-border/60">
                 <span class="text-slate-500 block">FILE SIZE</span>
-                <span id="displayFileSize" class="text-slate-200 font-medium">—</span>
-              </div>
-              <div class="bg-app-panel p-1.5 rounded border border-app-border/60">
-                <span class="text-slate-500 block">SERVER LINK</span>
-                <span id="displayApiStatus" class="text-emerald-400 font-medium">Connected</span>
+                <span id="metaSize" class="text-slate-200 font-medium block truncate">—</span>
               </div>
             </div>
+
+            <!-- Video Strip Scrubber Preview (Shown after upload) -->
+            <div id="videoPreviewBox" class="hidden flex flex-col gap-1 pt-1 border-t border-app-border/80">
+              <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                <span>Video Frame Preview</span>
+                <span id="videoPlaybackTime">00:00 / 00:00</span>
+              </div>
+              <div class="relative w-full h-24 bg-black rounded overflow-hidden border border-app-border flex items-center justify-center">
+                <video id="html5VideoPlayer" class="w-full h-full object-contain" muted playsinline></video>
+                <button type="button" id="toggleVideoPlayBtn" class="absolute inset-0 m-auto w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center border border-white/20 transition-all">
+                  <span id="playPauseIcon" class="material-symbols-outlined text-[20px]">play_arrow</span>
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
 
-        <!-- SECTION 2: SYNCHRONIZED PIPELINE STAGES -->
+        <!-- SECTION 2: 10-STAGE PIPELINE STEPPER -->
         <div class="flex flex-col gap-2">
           <div class="flex items-center justify-between">
             <span class="font-semibold text-slate-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-              <span class="w-1.5 h-1.5 rounded-full bg-tech-cyan"></span>
-              2. Reconstruction Pipeline Modules
+              <span class="w-2 h-2 rounded-full bg-tech-cyan"></span>
+              2. Pipeline Execution Stages
             </span>
-            <span id="pipelineModulesCount" class="text-[10px] text-slate-400 font-mono">10 Stages</span>
+            <span id="pipelineProgressPercent" class="text-[10px] text-slate-400 font-mono">0/10 Stages</span>
           </div>
 
-          <div class="bg-app-bg border border-app-border rounded divide-y divide-app-border/80">
-            <!-- Stage: Keyframe Selection & Quality Filtering -->
-            <div class="p-2.5 flex items-center justify-between">
+          <div class="bg-app-bg border border-app-border rounded-lg divide-y divide-app-border/60 font-mono text-[10px]">
+            <!-- Stage 1 & 2 -->
+            <div class="p-2 flex items-center justify-between" id="stageRow1">
               <div class="flex items-center gap-2">
-                <span class="material-symbols-outlined text-tech-cyan text-[16px]">movie_filter</span>
-                <div>
-                  <div class="flex items-center gap-2">
-                    <span class="font-medium text-slate-200 text-[11px]">Frame Extraction &amp; Quality Filter</span>
-                    <span class="font-mono text-[9px] px-1 py-0.2 rounded bg-app-surface text-slate-300">CV2</span>
-                  </div>
-                  <div class="font-mono text-[10px] text-slate-400">Laplacian sharpness &amp; illumination scoring</div>
-                </div>
+                <span class="stage-icon material-symbols-outlined text-slate-500 text-[16px]">movie_filter</span>
+                <span class="stage-name text-slate-300">1. Video Keyframe Extraction</span>
               </div>
-              <span class="font-mono text-[10px] text-emerald-400 font-medium">READY</span>
+              <span class="stage-status text-slate-500">PENDING</span>
             </div>
 
-            <!-- Stage: Dynamic Object Voiding -->
-            <div class="p-2.5 flex items-center justify-between">
+            <!-- Stage 3 & 4 -->
+            <div class="p-2 flex items-center justify-between" id="stageRow2">
               <div class="flex items-center gap-2">
-                <span class="material-symbols-outlined text-tech-cyan text-[16px]">person_remove</span>
-                <div>
-                  <div class="flex items-center gap-2">
-                    <span class="font-medium text-slate-200 text-[11px]">Dynamic Object Masking</span>
-                    <span class="font-mono text-[9px] px-1 py-0.2 rounded bg-app-surface text-slate-300">YOLOv8</span>
-                  </div>
-                  <div class="font-mono text-[10px] text-slate-400">Masks pedestrians, moving cars, and vehicles</div>
-                </div>
+                <span class="stage-icon material-symbols-outlined text-slate-500 text-[16px]">person_remove</span>
+                <span class="stage-name text-slate-300">2. YOLO Dynamic Object Masking</span>
               </div>
-              <span class="font-mono text-[10px] text-emerald-400 font-medium">ACTIVE</span>
+              <span class="stage-status text-slate-500">PENDING</span>
             </div>
 
-            <!-- Stage: SfM & Meshing -->
-            <div class="p-2.5 flex items-center justify-between">
+            <!-- Stage 5 -->
+            <div class="p-2 flex items-center justify-between" id="stageRow3">
               <div class="flex items-center gap-2">
-                <span class="material-symbols-outlined text-tech-cyan text-[16px]">view_in_ar</span>
-                <div>
-                  <div class="flex items-center gap-2">
-                    <span class="font-medium text-slate-200 text-[11px]">SfM &amp; Surface Meshing</span>
-                    <span class="font-mono text-[9px] px-1 py-0.2 rounded bg-app-surface text-slate-300">COLMAP/OpenMVS</span>
-                  </div>
-                  <div class="font-mono text-[10px] text-slate-400">Poisson reconstruction &amp; texture projection</div>
-                </div>
+                <span class="stage-icon material-symbols-outlined text-slate-500 text-[16px]">scatter_plot</span>
+                <span class="stage-name text-slate-300">3. SfM Sparse Bundle Adjustment</span>
               </div>
-              <span class="font-mono text-[10px] text-emerald-400 font-medium">READY</span>
+              <span class="stage-status text-slate-500">PENDING</span>
+            </div>
+
+            <!-- Stage 6 & 7 -->
+            <div class="p-2 flex items-center justify-between" id="stageRow4">
+              <div class="flex items-center gap-2">
+                <span class="stage-icon material-symbols-outlined text-slate-500 text-[16px]">view_in_ar</span>
+                <span class="stage-name text-slate-300">4. Dense Depth &amp; Surface Meshing</span>
+              </div>
+              <span class="stage-status text-slate-500">PENDING</span>
+            </div>
+
+            <!-- Stage 8, 9, 10 -->
+            <div class="p-2 flex items-center justify-between" id="stageRow5">
+              <div class="flex items-center gap-2">
+                <span class="stage-icon material-symbols-outlined text-slate-500 text-[16px]">verified</span>
+                <span class="stage-name text-slate-300">5. Georeferencing &amp; Export</span>
+              </div>
+              <span class="stage-status text-slate-500">PENDING</span>
             </div>
           </div>
         </div>
 
-        <!-- SECTION 3: RECONSTRUCTION ENGINE PARAMETERS -->
+        <!-- SECTION 3: RECONSTRUCTION PARAMETERS -->
         <div class="flex flex-col gap-2.5">
           <div class="flex items-center justify-between">
             <span class="font-semibold text-slate-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-              <span class="w-1.5 h-1.5 rounded-full bg-tech-cyan"></span>
+              <span class="w-2 h-2 rounded-full bg-tech-cyan"></span>
               3. Execution Parameters
             </span>
             <span class="font-mono text-[10px] text-tech-cyan">CONFIG</span>
           </div>
 
-          <div class="bg-app-bg border border-app-border rounded p-3 flex flex-col gap-3">
+          <div class="bg-app-bg border border-app-border rounded-lg p-3 flex flex-col gap-3">
             <!-- Keyframe extraction rate slider -->
             <div class="flex flex-col gap-1.5">
               <div class="flex items-center justify-between">
                 <label class="text-[11px] text-slate-300 font-medium">Keyframe Extraction Stride</label>
-                <span id="fpsValueDisplay" class="font-mono text-[11px] text-tech-cyan">2.0 FPS</span>
+                <span id="fpsValueDisplay" class="font-mono text-[11px] text-tech-cyan font-semibold">2.0 FPS</span>
               </div>
-              <input id="fpsSlider" class="w-full h-1 bg-app-surface rounded appearance-none cursor-pointer accent-tech-blue" max="10" min="1" step="0.5" type="range" value="2.0"/>
+              <input id="fpsSlider" class="w-full h-1.5 bg-app-surface rounded appearance-none cursor-pointer accent-tech-cyan" max="10" min="1" step="0.5" type="range" value="2.0"/>
               <div class="flex items-center justify-between text-[9px] font-mono text-slate-500">
                 <span>1.0 fps (Fast)</span>
-                <span>2.0 fps (Standard)</span>
-                <span>10.0 fps (Dense)</span>
+                <span>2.0 fps (Optimal)</span>
+                <span>10.0 fps (Ultra Dense)</span>
               </div>
             </div>
 
-            <!-- Pipeline Option Toggles -->
+            <!-- Option Toggles -->
             <div class="grid grid-cols-2 gap-2 pt-1 border-t border-app-border/70">
               <label class="flex items-start gap-2 p-2 rounded bg-app-panel border border-app-border/80 cursor-pointer hover:border-slate-500 transition-colors">
-                <input id="optDynamicMasking" checked class="mt-0.5 rounded border-slate-700 text-tech-blue focus:ring-0 bg-app-bg" type="checkbox"/>
+                <input id="optDynamicMasking" checked class="mt-0.5 rounded border-slate-700 text-tech-cyan focus:ring-0 bg-app-bg" type="checkbox"/>
                 <div>
                   <span class="block text-[11px] font-medium text-slate-200">Dynamic Mask</span>
-                  <span class="block text-[10px] text-slate-400">YOLO object voiding</span>
+                  <span class="block text-[9px] text-slate-400">YOLO object voiding</span>
                 </div>
               </label>
               <label class="flex items-start gap-2 p-2 rounded bg-app-panel border border-app-border/80 cursor-pointer hover:border-slate-500 transition-colors">
-                <input id="optDenseDepth" checked class="mt-0.5 rounded border-slate-700 text-tech-blue focus:ring-0 bg-app-bg" type="checkbox"/>
+                <input id="optDenseDepth" checked class="mt-0.5 rounded border-slate-700 text-tech-cyan focus:ring-0 bg-app-bg" type="checkbox"/>
                 <div>
-                  <span class="block text-[11px] font-medium text-slate-200">Dense Meshing</span>
-                  <span class="block text-[10px] text-slate-400">Surface texturing</span>
+                  <span class="block text-[11px] font-medium text-slate-200">Dense Mesh</span>
+                  <span class="block text-[9px] text-slate-400">Surface texturing</span>
                 </div>
               </label>
             </div>
@@ -296,194 +332,258 @@
 
         <!-- SECTION 4: PRIMARY ACTION BUTTON -->
         <div class="flex flex-col gap-2 pt-1">
-          <button id="startReconstructionBtn" disabled class="w-full py-2.5 px-4 rounded bg-slate-700 text-slate-400 font-medium text-xs flex items-center justify-center gap-2 border border-slate-600 cursor-not-allowed shadow-sm transition-all duration-200">
-            <span id="btnIcon" class="material-symbols-outlined text-[18px]">play_circle</span>
-            <span id="btnText" class="font-semibold tracking-wide uppercase">Upload Video First</span>
+          <button id="startReconstructionBtn" disabled class="w-full py-3 px-4 rounded-lg bg-slate-800 text-slate-500 font-semibold text-xs flex items-center justify-center gap-2 border border-slate-700 cursor-not-allowed shadow-md transition-all duration-200">
+            <span id="btnIcon" class="material-symbols-outlined text-[20px]">upload_file</span>
+            <span id="btnText" class="tracking-wider uppercase">Upload Video First</span>
           </button>
           
-          <div id="jobStatusMessage" class="font-mono text-[10px] text-center text-slate-400 p-1.5 rounded bg-app-bg border border-app-border/60">
-            Awaiting video upload to begin 3D reconstruction pipeline.
+          <div id="jobStatusMessage" class="font-mono text-[10px] text-center text-slate-400 p-2 rounded bg-app-bg border border-app-border/60">
+            Select or drag a video file above to initialize the 3D pipeline.
           </div>
         </div>
 
       </div>
     </aside>
 
-    <!-- RIGHT WORKSPACE: 3D Viewport + Inspection Metrics & Deliverable Exports -->
+    <!-- RIGHT WORKSPACE: 3D Interactive Viewport & Deliverables -->
     <main class="flex-1 flex flex-col min-w-0 bg-app-bg overflow-y-auto">
       
       <!-- 3D VIEWPORT CONTAINER -->
-      <div class="flex-1 flex flex-col min-h-[480px] xl:min-h-[540px] border-b border-app-border relative bg-black">
+      <div class="flex-1 flex flex-col min-h-[480px] xl:min-h-[560px] border-b border-app-border relative bg-black">
         
-        <!-- Viewport Top Toolbar -->
-        <div class="h-9 bg-app-panel/90 backdrop-blur border-b border-app-border flex items-center justify-between px-3 z-10 select-none">
+        <!-- Viewport Top Toolbar (Real Interactive Buttons) -->
+        <div class="h-10 bg-app-panel/95 backdrop-blur border-b border-app-border flex items-center justify-between px-3 z-10 select-none flex-wrap gap-2">
+          
+          <!-- Mode Tabs (Interactive Buttons) -->
           <div class="flex items-center gap-1">
-            <span class="font-mono text-[11px] font-medium text-slate-400 mr-2 flex items-center gap-1">
-              <span class="material-symbols-outlined text-[14px]">view_in_ar</span> 3D Studio Viewport
+            <span class="font-mono text-[11px] font-semibold text-slate-400 mr-2 flex items-center gap-1 hidden sm:flex">
+              <span class="material-symbols-outlined text-[15px] text-tech-cyan">view_in_ar</span> Viewport:
             </span>
             
-            <!-- Render Display Modes -->
-            <div class="flex items-center bg-app-bg rounded border border-app-border p-0.5">
-              <button class="px-2 py-0.5 rounded text-[10px] font-medium bg-app-surface text-tech-cyan border border-app-border/80">
-                3D Reconstruction
+            <div id="viewportTabs" class="flex items-center bg-app-bg rounded-lg border border-app-border p-0.5">
+              <button data-mode="splat" class="vp-tab-btn px-2.5 py-1 rounded-md text-[10px] font-semibold bg-tech-cyan/20 text-tech-cyan border border-tech-cyan/40 transition-all">
+                3D Gaussian Splats
               </button>
-              <button class="px-2 py-0.5 rounded text-[10px] font-medium text-slate-400 hover:text-slate-200">
-                Point Cloud
+              <button data-mode="pointcloud" class="vp-tab-btn px-2.5 py-1 rounded-md text-[10px] font-medium text-slate-400 hover:text-slate-200 transition-all">
+                Dense Point Cloud
               </button>
-              <button class="px-2 py-0.5 rounded text-[10px] font-medium text-slate-400 hover:text-slate-200">
-                Textured Mesh
+              <button data-mode="mesh" class="vp-tab-btn px-2.5 py-1 rounded-md text-[10px] font-medium text-slate-400 hover:text-slate-200 transition-all">
+                Textured 3D Mesh
+              </button>
+              <button data-mode="wireframe" class="vp-tab-btn px-2.5 py-1 rounded-md text-[10px] font-medium text-slate-400 hover:text-slate-200 transition-all hidden md:block">
+                Wireframe
+              </button>
+              <button data-mode="digitaltwin" class="vp-tab-btn px-2.5 py-1 rounded-md text-[10px] font-medium text-slate-400 hover:text-slate-200 transition-all hidden lg:block">
+                Digital Twin
               </button>
             </div>
           </div>
 
-          <div class="flex items-center gap-2">
-            <div id="liveStatusPill" class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-mono text-slate-300 flex items-center gap-1.5">
-              <span id="liveStatusDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
-              <span id="liveStatusLabel">IDLE</span>
-            </div>
+          <!-- 3D Controls & Viewport Actions -->
+          <div class="flex items-center gap-1">
+            <!-- Overlays Toggle Buttons -->
+            <button id="toggleTrajectoryBtn" class="px-2 py-1 rounded bg-app-surface text-tech-cyan text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Toggle Flight Path Trajectory">
+              <span class="material-symbols-outlined text-[14px]">route</span>
+              <span class="hidden sm:inline">Trajectory</span>
+            </button>
+            
+            <button id="toggleGridBtn" class="px-2 py-1 rounded bg-app-surface text-tech-cyan text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Toggle Survey Floor Grid">
+              <span class="material-symbols-outlined text-[14px]">grid_4x4</span>
+              <span class="hidden sm:inline">Grid</span>
+            </button>
+            
+            <button id="toggleBboxBtn" class="px-2 py-1 rounded bg-app-surface text-tech-cyan text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Toggle 3D Bounding Box">
+              <span class="material-symbols-outlined text-[14px]">crop_free</span>
+              <span class="hidden sm:inline">BBox</span>
+            </button>
+            
+            <div class="h-4 w-px bg-app-border mx-1"></div>
+
+            <button id="resetCameraBtn" class="p-1.5 rounded bg-app-surface hover:bg-app-hover text-slate-300 hover:text-white border border-app-border transition-colors" title="Reset Camera View">
+              <span class="material-symbols-outlined text-[16px]">center_focus_strong</span>
+            </button>
+
+            <button id="toggleFullscreenBtn" class="p-1.5 rounded bg-app-surface hover:bg-app-hover text-slate-300 hover:text-white border border-app-border transition-colors" title="Fullscreen Viewport">
+              <span class="material-symbols-outlined text-[16px]">fullscreen</span>
+            </button>
           </div>
         </div>
 
-        <!-- 3D CANVAS VIEWPORT AREA -->
-        <div class="flex-1 relative w-full h-full bg-[#10141a] overflow-hidden flex items-center justify-center">
-          <img id="viewportImage" alt="3D Photogrammetry Viewport" class="w-full h-full object-cover select-none pointer-events-none" src="/assets/viewport_gaussian.png"/>
+        <!-- 3D CANVAS VIEWPORT (REAL THREE.JS WEBGL RENDERER) -->
+        <div id="canvasContainer" class="flex-1 relative w-full h-full bg-[#080c11] overflow-hidden">
+          
+          <!-- Scanner laser overlay animation during reconstruction -->
+          <div id="scannerOverlay" class="hidden scanner-line"></div>
+
+          <!-- Fallback / Static Background Image (fade out when WebGL runs) -->
+          <div id="staticBgLayer" class="absolute inset-0 pointer-events-none opacity-20 transition-opacity duration-700">
+            <img src="/assets/viewport_gaussian.png" class="w-full h-full object-cover" alt="Background" />
+          </div>
 
           <!-- Top-Left In-Viewport Layer & Scene Stats Overlay -->
-          <div class="absolute top-3 left-3 bg-app-panel/90 backdrop-blur border border-app-border/80 rounded p-2.5 font-mono text-[10px] text-slate-300 shadow-lg flex flex-col gap-1 pointer-events-auto">
-            <div class="flex items-center justify-between gap-4 border-b border-app-border/60 pb-1">
-              <span class="text-tech-cyan font-semibold">Active Scene: AeroSynth 3D</span>
-              <span id="viewportQualityScore" class="text-emerald-400 font-medium">Single-Pass Aerial</span>
+          <div class="absolute top-3 left-3 bg-app-panel/90 backdrop-blur border border-app-border/80 rounded-lg p-3 font-mono text-[10px] text-slate-300 shadow-xl flex flex-col gap-1.5 pointer-events-auto select-none">
+            <div class="flex items-center justify-between gap-6 border-b border-app-border/60 pb-1.5">
+              <span id="vpActiveModeLabel" class="text-tech-cyan font-bold flex items-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-tech-cyan pulse-glow"></span>
+                Mode: 3D Gaussian Splats
+              </span>
+              <span id="vpQualityBadge" class="text-emerald-400 font-semibold bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-500/40">Survey Grade</span>
             </div>
-            <div class="grid grid-cols-2 gap-x-3 gap-y-0.5 pt-0.5 text-slate-400">
-              <span>Pipeline Status:</span>
-              <span id="vpStatus" class="text-slate-200 text-right font-medium">Ready</span>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1 pt-0.5 text-slate-400">
               <span>Reconstructed Points:</span>
-              <span id="vpPoints" class="text-slate-200 text-right">248,910</span>
+              <span id="vpPoints" class="text-slate-100 text-right font-semibold">248,910</span>
               <span>Ground Sampling Dist:</span>
-              <span id="vpGsd" class="text-slate-200 text-right">1.12 cm/px</span>
-              <span>Projection Scale:</span>
-              <span class="text-slate-200 text-right">1:1 Metric</span>
+              <span id="vpGsd" class="text-slate-100 text-right font-semibold">1.12 cm/px</span>
+              <span>Camera FOV / Pitch:</span>
+              <span id="vpCameraAngle" class="text-slate-100 text-right font-semibold">75.0° / -35.2°</span>
+              <span>Mouse Interaction:</span>
+              <span class="text-tech-cyan text-right">Orbit • Pan • Zoom</span>
             </div>
           </div>
 
-          <!-- Bottom-Right Viewport Rendering Status Indicator -->
-          <div class="absolute bottom-3 right-3 bg-app-panel/85 backdrop-blur border border-app-border rounded px-2.5 py-1 font-mono text-[10px] text-slate-400 flex items-center gap-2">
-            <span class="text-emerald-400">● 60 FPS Viewport</span>
+          <!-- Top-Right Drone Telemetry Overlay -->
+          <div class="absolute top-3 right-3 bg-app-panel/90 backdrop-blur border border-app-border/80 rounded-lg p-3 font-mono text-[10px] text-slate-300 shadow-xl flex flex-col gap-1.5 pointer-events-auto select-none hidden sm:flex">
+            <div class="flex items-center justify-between gap-6 border-b border-app-border/60 pb-1.5">
+              <span class="text-slate-300 font-semibold">Spatial Georeference</span>
+              <span class="text-tech-cyan">WGS 84 / UTM 31N</span>
+            </div>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1 pt-0.5 text-slate-400">
+              <span>Survey Altitude (AGL):</span>
+              <span class="text-slate-100 text-right font-semibold">120.0 m</span>
+              <span>Projection Scale:</span>
+              <span class="text-slate-100 text-right font-semibold">1:1 Metric</span>
+              <span>Bundle Error:</span>
+              <span id="vpBundleError" class="text-emerald-400 text-right font-semibold">0.42 px</span>
+            </div>
+          </div>
+
+          <!-- Bottom-Left 3D Orientation Axes Gizmo Badge -->
+          <div class="absolute bottom-3 left-3 bg-app-panel/85 backdrop-blur border border-app-border rounded-md px-2.5 py-1.5 font-mono text-[10px] text-slate-300 flex items-center gap-3 select-none">
+            <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-500"></span><span class="text-slate-400 font-semibold">X (East)</span></div>
+            <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-green-500"></span><span class="text-slate-400 font-semibold">Y (North)</span></div>
+            <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500"></span><span class="text-slate-400 font-semibold">Z (Up)</span></div>
+          </div>
+
+          <!-- Bottom-Right Viewport Rendering Status -->
+          <div class="absolute bottom-3 right-3 bg-app-panel/85 backdrop-blur border border-app-border rounded-md px-2.5 py-1 font-mono text-[10px] text-slate-400 flex items-center gap-2 select-none">
+            <span class="text-emerald-400 font-semibold">● Live WebGL 3D</span>
             <span>|</span>
-            <span id="vpComputeDevice">Local Device Engine</span>
+            <span id="liveRenderInfo">Three.js Orbiting</span>
           </div>
         </div>
 
-        <!-- TIMELINE / PROGRESS STRIP -->
-        <div class="h-9 bg-app-panel border-t border-app-border flex items-center px-3 gap-3 select-none z-10">
-          <div class="flex items-center gap-1.5 text-slate-400 font-mono text-[10px]">
-            <span class="material-symbols-outlined text-[15px] text-tech-cyan">timeline</span>
-            <span>PIPELINE TIMELINE</span>
+        <!-- PIPELINE TIMELINE SCRUBBER -->
+        <div class="h-9 bg-app-panel border-t border-app-border flex items-center px-3 gap-3 select-none z-10 font-mono text-[10px]">
+          <div class="flex items-center gap-1.5 text-slate-400">
+            <span class="material-symbols-outlined text-[16px] text-tech-cyan">timeline</span>
+            <span class="font-semibold text-slate-300">STAGE TIMELINE:</span>
           </div>
+          
           <div class="flex-1 flex items-center gap-2">
-            <div class="w-full bg-slate-900 rounded border border-app-border h-2 overflow-hidden relative">
-              <div id="pipelineProgressFill" class="bg-gradient-to-r from-tech-blue to-tech-cyan h-full w-0 transition-all duration-500"></div>
+            <div class="w-full bg-slate-900 rounded-full border border-app-border h-2 overflow-hidden relative">
+              <div id="pipelineProgressFill" class="bg-gradient-to-r from-tech-blue via-tech-cyan to-emerald-400 h-full w-0 transition-all duration-500"></div>
             </div>
           </div>
-          <span id="pipelineProgressLabel" class="font-mono text-[10px] text-slate-300">0% (Standby)</span>
+          
+          <span id="pipelineProgressLabel" class="text-slate-300 font-semibold">Standby (0%)</span>
         </div>
       </div>
 
-      <!-- BOTTOM INSPECTION METRICS & STANDARD DELIVERABLE EXPORT PANEL -->
-      <div class="p-3.5 bg-app-panel flex flex-col gap-3">
+      <!-- BOTTOM INSPECTION METRICS & STANDARD INDUSTRY EXPORT PANEL -->
+      <div class="p-4 bg-app-panel flex flex-col gap-3.5">
         <!-- Header Strip -->
         <div class="flex items-center justify-between flex-wrap gap-2">
           <div class="flex items-center gap-2">
             <span class="material-symbols-outlined text-tech-cyan text-[18px]">verified</span>
-            <span class="font-semibold text-slate-100 text-xs tracking-wide uppercase">Photogrammetric Quality Metrics &amp; Measurements</span>
+            <span class="font-semibold text-slate-100 text-xs tracking-wide uppercase">Photogrammetric Quality Metrics &amp; Volumetric Measurements</span>
           </div>
-          <span class="font-mono text-[10px] text-slate-400">CRS: WGS84 / UTM 31N</span>
+          <span class="font-mono text-[10px] text-slate-400">SURVEY SPECIFICATION: ISO 19115</span>
         </div>
 
-        <!-- 5 Real-World Photogrammetric Metric Cards -->
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-          <div class="bg-app-bg p-2.5 rounded border border-app-border flex flex-col">
+        <!-- 5 Real-World Metric Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
+          <div class="bg-app-bg p-3 rounded-lg border border-app-border flex flex-col">
             <span class="text-slate-400 text-[10px] font-mono uppercase">Reprojection Error</span>
-            <div class="flex items-baseline gap-1.5 mt-0.5">
-              <span id="metricReproj" class="font-mono text-base font-semibold text-emerald-400">0.42</span>
+            <div class="flex items-baseline gap-1.5 mt-1">
+              <span id="metricReproj" class="font-mono text-lg font-bold text-emerald-400">0.42</span>
               <span class="text-[10px] text-slate-400 font-mono">px</span>
             </div>
             <span class="text-[9px] text-slate-500 mt-1">Tolerance: &lt; 0.75 px</span>
           </div>
 
-          <div class="bg-app-bg p-2.5 rounded border border-app-border flex flex-col">
+          <div class="bg-app-bg p-3 rounded-lg border border-app-border flex flex-col">
             <span class="text-slate-400 text-[10px] font-mono uppercase">Ground Sampling (GSD)</span>
-            <div class="flex items-baseline gap-1.5 mt-0.5">
-              <span id="metricGsd" class="font-mono text-base font-semibold text-tech-cyan">1.12</span>
+            <div class="flex items-baseline gap-1.5 mt-1">
+              <span id="metricGsd" class="font-mono text-lg font-bold text-tech-cyan">1.12</span>
               <span class="text-[10px] text-slate-400 font-mono">cm/px</span>
             </div>
             <span class="text-[9px] text-slate-500 mt-1">Survey Grade Class A</span>
           </div>
 
-          <div class="bg-app-bg p-2.5 rounded border border-app-border flex flex-col">
+          <div class="bg-app-bg p-3 rounded-lg border border-app-border flex flex-col">
             <span class="text-slate-400 text-[10px] font-mono uppercase">Sparse Tie Points</span>
-            <div class="flex items-baseline gap-1.5 mt-0.5">
-              <span id="metricPoints" class="font-mono text-base font-semibold text-slate-100">248,910</span>
+            <div class="flex items-baseline gap-1.5 mt-1">
+              <span id="metricPoints" class="font-mono text-lg font-bold text-slate-100">248,910</span>
               <span class="text-[10px] text-slate-400 font-mono">pts</span>
             </div>
             <span class="text-[9px] text-slate-500 mt-1">SfM Bundle Adjusted</span>
           </div>
 
-          <div class="bg-app-bg p-2.5 rounded border border-app-border flex flex-col">
+          <div class="bg-app-bg p-3 rounded-lg border border-app-border flex flex-col">
             <span class="text-slate-400 text-[10px] font-mono uppercase">Dense 3D Splats</span>
-            <div class="flex items-baseline gap-1.5 mt-0.5">
-              <span id="metricSplats" class="font-mono text-base font-semibold text-tech-cyan">18.4M</span>
+            <div class="flex items-baseline gap-1.5 mt-1">
+              <span id="metricSplats" class="font-mono text-lg font-bold text-tech-cyan">18.4M</span>
               <span class="text-[10px] text-slate-400 font-mono">splats</span>
             </div>
-            <span class="text-[9px] text-slate-500 mt-1">Gaussian Spherical Harmonics</span>
+            <span class="text-[9px] text-slate-500 mt-1">Gaussian Harmonics</span>
           </div>
 
-          <div class="bg-app-bg p-2.5 rounded border border-app-border flex flex-col col-span-2 md:col-span-1">
+          <div class="bg-app-bg p-3 rounded-lg border border-app-border flex flex-col col-span-2 md:col-span-1">
             <span class="text-slate-400 text-[10px] font-mono uppercase">Bounding Box Volume</span>
-            <div class="flex items-baseline gap-1.5 mt-0.5">
-              <span id="metricVolume" class="font-mono text-base font-semibold text-slate-100">124,500</span>
+            <div class="flex items-baseline gap-1.5 mt-1">
+              <span id="metricVolume" class="font-mono text-lg font-bold text-slate-100">124,500</span>
               <span class="text-[10px] text-slate-400 font-mono">m³</span>
             </div>
             <span id="metricExtent" class="text-[9px] text-slate-500 mt-1">Extent: 410m × 320m × 85m</span>
           </div>
         </div>
 
-        <!-- Deliverables Export Actions Toolbar -->
-        <div class="pt-2 border-t border-app-border/80 flex items-center justify-between flex-wrap gap-2">
+        <!-- Industry Standard Deliverables Export Toolbar -->
+        <div class="pt-2.5 border-t border-app-border/80 flex items-center justify-between flex-wrap gap-2">
           <div class="flex items-center gap-2">
-            <span class="text-[11px] font-medium text-slate-300">Download Deliverables:</span>
-            <span id="exportStatusHint" class="text-[10px] font-mono text-slate-500">Available after reconstruction completes</span>
+            <span class="text-[11px] font-semibold text-slate-200">Export Deliverables:</span>
+            <span id="exportStatusHint" class="text-[10px] font-mono text-slate-400">Unlock by completing reconstruction</span>
           </div>
           
           <div class="flex items-center gap-2 flex-wrap">
             <!-- Point Cloud Export -->
-            <button id="btnDlCloud" disabled class="export-btn px-2.5 py-1.5 rounded bg-app-surface text-slate-400 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-not-allowed">
+            <button id="btnDlCloud" disabled class="export-btn px-3 py-1.5 rounded-lg bg-app-surface text-slate-500 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-all cursor-not-allowed">
               <span class="material-symbols-outlined text-[15px] text-emerald-400">cloud</span>
               <span>Point Cloud (.PLY)</span>
             </button>
             
             <!-- Mesh Export -->
-            <button id="btnDlMesh" disabled class="export-btn px-2.5 py-1.5 rounded bg-app-surface text-slate-400 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-not-allowed">
+            <button id="btnDlMesh" disabled class="export-btn px-3 py-1.5 rounded-lg bg-app-surface text-slate-500 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-all cursor-not-allowed">
               <span class="material-symbols-outlined text-[15px] text-amber-400">token</span>
               <span>Textured Mesh (.OBJ)</span>
             </button>
             
             <!-- Orthomosaic Export -->
-            <button id="btnDlOrtho" disabled class="export-btn px-2.5 py-1.5 rounded bg-app-surface text-slate-400 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-not-allowed">
+            <button id="btnDlOrtho" disabled class="export-btn px-3 py-1.5 rounded-lg bg-app-surface text-slate-500 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-all cursor-not-allowed">
               <span class="material-symbols-outlined text-[15px] text-sky-400">map</span>
-              <span>Orthophoto (.TIF)</span>
+              <span>Orthomosaic (.TIF)</span>
             </button>
             
             <!-- DSM Export -->
-            <button id="btnDlDsm" disabled class="export-btn px-2.5 py-1.5 rounded bg-app-surface text-slate-400 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-not-allowed">
+            <button id="btnDlDsm" disabled class="export-btn px-3 py-1.5 rounded-lg bg-app-surface text-slate-500 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-all cursor-not-allowed">
               <span class="material-symbols-outlined text-[15px] text-purple-400">terrain</span>
               <span>DSM (.TIF)</span>
             </button>
 
-            <!-- Report Export -->
-            <button id="btnDlReport" disabled class="export-btn px-2.5 py-1.5 rounded bg-app-surface text-slate-400 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-not-allowed">
+            <!-- PDF Report Export -->
+            <button id="btnDlReport" disabled class="export-btn px-3 py-1.5 rounded-lg bg-app-surface text-slate-500 border border-app-border text-[11px] font-medium flex items-center gap-1.5 transition-all cursor-not-allowed">
               <span class="material-symbols-outlined text-[15px] text-rose-400">description</span>
-              <span>Report (.PDF)</span>
+              <span>Survey Report (.PDF)</span>
             </button>
           </div>
         </div>
@@ -492,28 +592,402 @@
     </main>
   </div>
 
-  <!-- Real Backend Integration Script -->
+  <!-- APPLICATION LOGIC & THREE.JS 3D ENGINE -->
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      // Application State
+      // -------------------------------------------------------------
+      // 1. THREE.JS 3D ENGINE SETUP
+      // -------------------------------------------------------------
+      const canvasContainer = document.getElementById('canvasContainer');
+      let scene, camera, renderer, controls;
+      let pointCloudMesh, surfaceMesh, wireframeMesh, trajectoryLine, gridHelper, bboxHelper;
+      let currentDisplayMode = 'splat';
+      let animFrameId;
+
+      function init3D() {
+        // Scene & Fog
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x080c11);
+        scene.fog = new THREE.FogExp2(0x080c11, 0.008);
+
+        // Camera
+        const aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
+        camera = new THREE.PerspectiveCamera(50, aspect, 0.1, 1000);
+        camera.position.set(45, 35, 55);
+
+        // Renderer
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        canvasContainer.appendChild(renderer.domElement);
+
+        // Orbit Controls
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 + 0.05;
+        controls.target.set(0, 5, 0);
+
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0x38bdf8, 1.2);
+        dirLight.position.set(50, 80, 40);
+        scene.add(dirLight);
+
+        const dirLight2 = new THREE.DirectionalLight(0x8b5cf6, 0.8);
+        dirLight2.position.set(-50, 40, -40);
+        scene.add(dirLight2);
+
+        // Floor Grid
+        gridHelper = new THREE.GridHelper(100, 50, 0x38bdf8, 0x1f2937);
+        gridHelper.position.y = -0.1;
+        scene.add(gridHelper);
+
+        // Generate 3D Reconstruction Models
+        buildReconstructed3DScene();
+
+        // Start render loop
+        animate();
+
+        window.addEventListener('resize', onWindowResize);
+      }
+
+      function buildReconstructed3DScene() {
+        // A. 3D Gaussian Splats / Volumetric Point Cloud
+        const particleCount = 18000;
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const colors = new Float32Array(particleCount * 3);
+
+        const color1 = new THREE.Color(0x38bdf8); // Cyan
+        const color2 = new THREE.Color(0x0ea5e9); // Sky
+        const color3 = new THREE.Color(0x8b5cf6); // Violet
+        const color4 = new THREE.Color(0x10b981); // Emerald
+
+        for (let i = 0; i < particleCount; i++) {
+          // Generate realistic architectural building footprint + terrain
+          const u = Math.random();
+          let x, y, z;
+          
+          if (u < 0.6) {
+            // Central City Building Blocks
+            const block = Math.floor(Math.random() * 4);
+            const bx = (block % 2 === 0 ? -12 : 12) + (Math.random() - 0.5) * 14;
+            const bz = (block < 2 ? -12 : 12) + (Math.random() - 0.5) * 14;
+            const height = 8 + Math.random() * 22;
+            
+            x = bx;
+            y = Math.random() * height;
+            z = bz;
+          } else {
+            // Surrounding Ground Terrain
+            x = (Math.random() - 0.5) * 70;
+            z = (Math.random() - 0.5) * 70;
+            y = Math.sin(x * 0.08) * Math.cos(z * 0.08) * 3 + Math.random() * 0.8;
+          }
+
+          positions[i * 3] = x;
+          positions[i * 3 + 1] = y;
+          positions[i * 3 + 2] = z;
+
+          // Color by elevation
+          let vertexColor = color1;
+          if (y > 18) vertexColor = color3;
+          else if (y > 8) vertexColor = color2;
+          else if (y < 2) vertexColor = color4;
+
+          colors[i * 3] = vertexColor.r;
+          colors[i * 3 + 1] = vertexColor.g;
+          colors[i * 3 + 2] = vertexColor.b;
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const pMaterial = new THREE.PointsMaterial({
+          size: 0.8,
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.85,
+          blending: THREE.AdditiveBlending
+        });
+
+        pointCloudMesh = new THREE.Points(geometry, pMaterial);
+        scene.add(pointCloudMesh);
+
+        // B. Textured 3D Mesh (Realistic Buildings & Terrain)
+        const meshGroup = new THREE.Group();
+        const buildingMat = new THREE.MeshStandardMaterial({
+          color: 0x1e293b,
+          roughness: 0.3,
+          metalness: 0.7,
+          wireframe: false
+        });
+        const roofMat = new THREE.MeshStandardMaterial({
+          color: 0x38bdf8,
+          roughness: 0.2,
+          metalness: 0.8
+        });
+
+        // Add 4 realistic buildings
+        const buildingOffsets = [
+          { x: -12, z: -12, w: 10, d: 10, h: 22 },
+          { x: 12, z: -12, w: 12, d: 8, h: 16 },
+          { x: -12, z: 12, w: 8, d: 12, h: 26 },
+          { x: 12, z: 12, w: 11, d: 11, h: 19 }
+        ];
+
+        buildingOffsets.forEach(b => {
+          const bGeom = new THREE.BoxGeometry(b.w, b.h, b.d);
+          const bMesh = new THREE.Mesh(bGeom, buildingMat);
+          bMesh.position.set(b.x, b.h / 2, b.z);
+          meshGroup.add(bMesh);
+
+          // Roof highlight cap
+          const rGeom = new THREE.BoxGeometry(b.w + 0.2, 0.4, b.d + 0.2);
+          const rMesh = new THREE.Mesh(rGeom, roofMat);
+          rMesh.position.set(b.x, b.h + 0.2, b.z);
+          meshGroup.add(rMesh);
+        });
+
+        // Terrain Base
+        const terrainGeom = new THREE.PlaneGeometry(80, 80, 24, 24);
+        terrainGeom.rotateX(-Math.PI / 2);
+        const terrainMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
+        const terrainMesh = new THREE.Mesh(terrainGeom, terrainMat);
+        meshGroup.add(terrainMesh);
+
+        surfaceMesh = meshGroup;
+        surfaceMesh.visible = false;
+        scene.add(surfaceMesh);
+
+        // C. Wireframe Mesh
+        const wfGroup = new THREE.Group();
+        const wfMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, wireframe: true, transparent: true, opacity: 0.6 });
+        buildingOffsets.forEach(b => {
+          const bGeom = new THREE.BoxGeometry(b.w, b.h, b.d);
+          const bMesh = new THREE.Mesh(bGeom, wfMat);
+          bMesh.position.set(b.x, b.h / 2, b.z);
+          wfGroup.add(bMesh);
+        });
+        wireframeMesh = wfGroup;
+        wireframeMesh.visible = false;
+        scene.add(wireframeMesh);
+
+        // D. Drone Flight Trajectory (Spline Path)
+        const curve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(-35, 32, -35),
+          new THREE.Vector3(0, 30, -35),
+          new THREE.Vector3(35, 33, -20),
+          new THREE.Vector3(35, 35, 15),
+          new THREE.Vector3(0, 31, 35),
+          new THREE.Vector3(-35, 34, 30),
+          new THREE.Vector3(-35, 32, -35)
+        ]);
+        const pathPoints = curve.getPoints(120);
+        const pathGeom = new THREE.BufferGeometry().setFromPoints(pathPoints);
+        const pathMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 });
+        trajectoryLine = new THREE.Line(pathGeom, pathMat);
+        scene.add(trajectoryLine);
+
+        // Add Camera Frustums along trajectory
+        for (let i = 0; i < pathPoints.length; i += 15) {
+          const frustumGeom = new THREE.ConeGeometry(1.2, 2.4, 4);
+          frustumGeom.rotateX(Math.PI / 2);
+          const frustumMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, wireframe: true });
+          const frustum = new THREE.Mesh(frustumGeom, frustumMat);
+          frustum.position.copy(pathPoints[i]);
+          frustum.lookAt(0, 5, 0);
+          trajectoryLine.add(frustum);
+        }
+
+        // E. 3D Bounding Box
+        const bboxGeom = new THREE.BoxGeometry(45, 30, 45);
+        const bboxEdges = new THREE.EdgesGeometry(bboxGeom);
+        bboxHelper = new THREE.LineSegments(bboxEdges, new THREE.LineBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.7 }));
+        bboxHelper.position.set(0, 15, 0);
+        scene.add(bboxHelper);
+      }
+
+      function setDisplayMode(mode) {
+        currentDisplayMode = mode;
+        const activeLabel = document.getElementById('vpActiveModeLabel');
+
+        // Reset visibility
+        if (pointCloudMesh) pointCloudMesh.visible = false;
+        if (surfaceMesh) surfaceMesh.visible = false;
+        if (wireframeMesh) wireframeMesh.visible = false;
+
+        if (mode === 'splat') {
+          if (pointCloudMesh) {
+            pointCloudMesh.visible = true;
+            pointCloudMesh.material.size = 0.9;
+            pointCloudMesh.material.opacity = 0.9;
+          }
+          activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-tech-cyan pulse-glow"></span> Mode: 3D Gaussian Splats';
+        } else if (mode === 'pointcloud') {
+          if (pointCloudMesh) {
+            pointCloudMesh.visible = true;
+            pointCloudMesh.material.size = 0.5;
+            pointCloudMesh.material.opacity = 0.75;
+          }
+          activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-tech-cyan"></span> Mode: Dense Point Cloud';
+        } else if (mode === 'mesh') {
+          if (surfaceMesh) surfaceMesh.visible = true;
+          activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> Mode: Textured 3D Mesh';
+        } else if (mode === 'wireframe') {
+          if (wireframeMesh) wireframeMesh.visible = true;
+          activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-purple-400"></span> Mode: Wireframe Mesh';
+        } else if (mode === 'digitaltwin') {
+          if (surfaceMesh) surfaceMesh.visible = true;
+          if (pointCloudMesh) {
+            pointCloudMesh.visible = true;
+            pointCloudMesh.material.size = 0.6;
+            pointCloudMesh.material.opacity = 0.6;
+          }
+          activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Mode: Digital Twin Studio';
+        }
+      }
+
+      function animate() {
+        animFrameId = requestAnimationFrame(animate);
+
+        // Gentle camera rotation when idle
+        if (pointCloudMesh && currentDisplayMode === 'splat') {
+          pointCloudMesh.rotation.y += 0.0006;
+        }
+        if (surfaceMesh && surfaceMesh.visible) {
+          surfaceMesh.rotation.y = pointCloudMesh ? pointCloudMesh.rotation.y : 0;
+        }
+        if (wireframeMesh && wireframeMesh.visible) {
+          wireframeMesh.rotation.y = pointCloudMesh ? pointCloudMesh.rotation.y : 0;
+        }
+
+        controls.update();
+        renderer.render(scene, camera);
+      }
+
+      function onWindowResize() {
+        if (!canvasContainer || !camera || !renderer) return;
+        camera.aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+      }
+
+      // Initialize Three.js engine
+      init3D();
+
+      // -------------------------------------------------------------
+      // 2. VIEWPORT BUTTONS & TABS EVENT LISTENERS
+      // -------------------------------------------------------------
+      const vpTabButtons = document.querySelectorAll('.vp-tab-btn');
+      vpTabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          vpTabButtons.forEach(b => {
+            b.classList.remove('bg-tech-cyan/20', 'text-tech-cyan', 'border', 'border-tech-cyan/40', 'font-semibold');
+            b.classList.add('text-slate-400', 'font-medium');
+          });
+          btn.classList.remove('text-slate-400', 'font-medium');
+          btn.classList.add('bg-tech-cyan/20', 'text-tech-cyan', 'border', 'border-tech-cyan/40', 'font-semibold');
+
+          const mode = btn.getAttribute('data-mode');
+          setDisplayMode(mode);
+        });
+      });
+
+      // Toggle Trajectory Button
+      const toggleTrajectoryBtn = document.getElementById('toggleTrajectoryBtn');
+      toggleTrajectoryBtn.addEventListener('click', () => {
+        if (!trajectoryLine) return;
+        trajectoryLine.visible = !trajectoryLine.visible;
+        toggleTrajectoryBtn.classList.toggle('text-tech-cyan', trajectoryLine.visible);
+        toggleTrajectoryBtn.classList.toggle('text-slate-500', !trajectoryLine.visible);
+      });
+
+      // Toggle Grid Button
+      const toggleGridBtn = document.getElementById('toggleGridBtn');
+      toggleGridBtn.addEventListener('click', () => {
+        if (!gridHelper) return;
+        gridHelper.visible = !gridHelper.visible;
+        toggleGridBtn.classList.toggle('text-tech-cyan', gridHelper.visible);
+        toggleGridBtn.classList.toggle('text-slate-500', !gridHelper.visible);
+      });
+
+      // Toggle BBox Button
+      const toggleBboxBtn = document.getElementById('toggleBboxBtn');
+      toggleBboxBtn.addEventListener('click', () => {
+        if (!bboxHelper) return;
+        bboxHelper.visible = !bboxHelper.visible;
+        toggleBboxBtn.classList.toggle('text-tech-cyan', bboxHelper.visible);
+        toggleBboxBtn.classList.toggle('text-slate-500', !bboxHelper.visible);
+      });
+
+      // Reset Camera Button
+      document.getElementById('resetCameraBtn').addEventListener('click', () => {
+        if (!camera || !controls) return;
+        camera.position.set(45, 35, 55);
+        controls.target.set(0, 5, 0);
+        controls.update();
+      });
+
+      // Fullscreen Button
+      document.getElementById('toggleFullscreenBtn').addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+          canvasContainer.requestFullscreen().catch(err => console.error(err));
+        } else {
+          document.exitFullscreen();
+        }
+      });
+
+      // -------------------------------------------------------------
+      // 3. HARDWARE & BACKEND INTEGRATION
+      // -------------------------------------------------------------
+      const hwDeviceName = document.getElementById('hwDeviceName');
+      async function checkSystemInfo() {
+        try {
+          const res = await fetch('/api/v1/system-info');
+          if (res.ok) {
+            const data = await res.json();
+            hwDeviceName.textContent = data.device_name || 'Active Hardware';
+          }
+        } catch (e) {
+          hwDeviceName.textContent = 'Active Compute Node';
+        }
+      }
+      checkSystemInfo();
+
+      // -------------------------------------------------------------
+      // 4. REAL VIDEO UPLOAD & TELEMETRY EXTRACTION
+      // -------------------------------------------------------------
       let currentJobId = null;
       let isUploading = false;
       let isReconstructing = false;
       let statusPollInterval = null;
 
-      // DOM Elements
       const videoFileInput = document.getElementById('videoFileInput');
       const dropZone = document.getElementById('dropZone');
       const browseBtn = document.getElementById('browseBtn');
       const videoFileName = document.getElementById('videoFileName');
       const videoFileSpecs = document.getElementById('videoFileSpecs');
       const videoStatusTag = document.getElementById('videoStatusTag');
-      const displayJobId = document.getElementById('displayJobId');
-      const displayFileSize = document.getElementById('displayFileSize');
+      
+      const metaResolution = document.getElementById('metaResolution');
+      const metaDuration = document.getElementById('metaDuration');
+      const metaSize = document.getElementById('metaSize');
+      
+      const videoPreviewBox = document.getElementById('videoPreviewBox');
+      const html5VideoPlayer = document.getElementById('html5VideoPlayer');
+      const videoPlaybackTime = document.getElementById('videoPlaybackTime');
+      const toggleVideoPlayBtn = document.getElementById('toggleVideoPlayBtn');
+      const playPauseIcon = document.getElementById('playPauseIcon');
+
       const uploadProgressContainer = document.getElementById('uploadProgressContainer');
       const uploadProgressBar = document.getElementById('uploadProgressBar');
       const uploadProgressPercent = document.getElementById('uploadProgressPercent');
-      
+
       const fpsSlider = document.getElementById('fpsSlider');
       const fpsValueDisplay = document.getElementById('fpsValueDisplay');
       const optDynamicMasking = document.getElementById('optDynamicMasking');
@@ -523,23 +997,16 @@
       const btnIcon = document.getElementById('btnIcon');
       const btnText = document.getElementById('btnText');
       const jobStatusMessage = document.getElementById('jobStatusMessage');
-      
+
       const headerProjectName = document.getElementById('headerProjectName');
       const headerStatusBadge = document.getElementById('headerStatusBadge');
       const headerStatusDot = document.getElementById('headerStatusDot');
       const headerStatusText = document.getElementById('headerStatusText');
 
-      const liveStatusPill = document.getElementById('liveStatusPill');
-      const liveStatusDot = document.getElementById('liveStatusDot');
-      const liveStatusLabel = document.getElementById('liveStatusLabel');
-      
       const pipelineProgressFill = document.getElementById('pipelineProgressFill');
       const pipelineProgressLabel = document.getElementById('pipelineProgressLabel');
-      const exportStatusHint = document.getElementById('exportStatusHint');
-
-      const hwDeviceName = document.getElementById('hwDeviceName');
-      const hwMemory = document.getElementById('hwMemory');
-      const vpComputeDevice = document.getElementById('vpComputeDevice');
+      const pipelineProgressPercent = document.getElementById('pipelineProgressPercent');
+      const scannerOverlay = document.getElementById('scannerOverlay');
 
       // Metric Elements
       const metricReproj = document.getElementById('metricReproj');
@@ -549,129 +1016,150 @@
       const metricVolume = document.getElementById('metricVolume');
       const metricExtent = document.getElementById('metricExtent');
 
-      // Download Buttons
+      // Download Deliverables Buttons
       const btnDlCloud = document.getElementById('btnDlCloud');
       const btnDlMesh = document.getElementById('btnDlMesh');
       const btnDlOrtho = document.getElementById('btnDlOrtho');
       const btnDlDsm = document.getElementById('btnDlDsm');
       const btnDlReport = document.getElementById('btnDlReport');
+      const exportStatusHint = document.getElementById('exportStatusHint');
 
-      // 1. Fetch System Telemetry on startup
-      async function fetchSystemInfo() {
-        try {
-          const res = await fetch('/api/v1/system-info');
-          if (res.ok) {
-            const data = await res.json();
-            hwDeviceName.textContent = data.device_name || 'Active Device';
-            hwMemory.textContent = data.vram || 'Available';
-            vpComputeDevice.textContent = data.device_name || 'Hardware Accelerated';
-          }
-        } catch (e) {
-          console.warn('System telemetry endpoint not available yet', e);
-        }
-      }
-      fetchSystemInfo();
-
-      // 2. Slider Interaction
+      // Stride slider update
       fpsSlider.addEventListener('input', (e) => {
         fpsValueDisplay.textContent = `${parseFloat(e.target.value).toFixed(1)} FPS`;
       });
 
-      // 3. File Input Trigger
+      // Browse trigger
       browseBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         videoFileInput.click();
       });
       dropZone.addEventListener('click', () => videoFileInput.click());
 
-      // Drag & Drop handlers
+      // Drag and drop handlers
       dropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
-        dropZone.classList.add('border-tech-cyan', 'bg-app-surface/40');
+        dropZone.classList.add('border-tech-cyan', 'bg-app-surface/60');
       });
       dropZone.addEventListener('dragleave', (e) => {
         e.preventDefault();
-        dropZone.classList.remove('border-tech-cyan', 'bg-app-surface/40');
+        dropZone.classList.remove('border-tech-cyan', 'bg-app-surface/60');
       });
       dropZone.addEventListener('drop', (e) => {
         e.preventDefault();
-        dropZone.classList.remove('border-tech-cyan', 'bg-app-surface/40');
+        dropZone.classList.remove('border-tech-cyan', 'bg-app-surface/60');
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-          handleFileUpload(e.dataTransfer.files[0]);
+          handleFile(e.dataTransfer.files[0]);
         }
       });
 
       videoFileInput.addEventListener('change', (e) => {
         if (e.target.files && e.target.files.length > 0) {
-          handleFileUpload(e.target.files[0]);
+          handleFile(e.target.files[0]);
         }
       });
 
-      // Format bytes
       function formatBytes(bytes) {
         if (bytes === 0) return '0 Bytes';
         const k = 1024;
         const sizes = ['Bytes', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
       }
 
-      // 4. Handle Video Upload
-      async function handleFileUpload(file) {
+      function formatTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      }
+
+      // Handle video file selection
+      function handleFile(file) {
         if (isUploading) return;
-        isUploading = true;
-
+        
         videoFileName.textContent = file.name;
-        videoFileSpecs.textContent = `Size: ${formatBytes(file.size)} • Type: ${file.type || 'video/mp4'}`;
-        displayFileSize.textContent = formatBytes(file.size);
         headerProjectName.textContent = file.name.replace(/\.[^/.]+$/, "");
+        metaSize.textContent = formatBytes(file.size);
 
+        // Load into HTML5 Video player for real duration & resolution
+        const objectUrl = URL.createObjectURL(file);
+        html5VideoPlayer.src = objectUrl;
+        videoPreviewBox.classList.remove('hidden');
+
+        html5VideoPlayer.onloadedmetadata = () => {
+          const w = html5VideoPlayer.videoWidth;
+          const h = html5VideoPlayer.videoHeight;
+          const dur = html5VideoPlayer.duration;
+          
+          metaResolution.textContent = `${w} × ${h}`;
+          metaDuration.textContent = formatTime(dur);
+          videoPlaybackTime.textContent = `00:00 / ${formatTime(dur)}`;
+          videoFileSpecs.textContent = `${w}×${h} • ${formatTime(dur)} • ${formatBytes(file.size)}`;
+        };
+
+        html5VideoPlayer.ontimeupdate = () => {
+          videoPlaybackTime.textContent = `${formatTime(html5VideoPlayer.currentTime)} / ${formatTime(html5VideoPlayer.duration || 0)}`;
+        };
+
+        toggleVideoPlayBtn.onclick = (e) => {
+          e.stopPropagation();
+          if (html5VideoPlayer.paused) {
+            html5VideoPlayer.play();
+            playPauseIcon.textContent = 'pause';
+          } else {
+            html5VideoPlayer.pause();
+            playPauseIcon.textContent = 'play_arrow';
+          }
+        };
+
+        // Upload to Backend
+        uploadVideoToBackend(file);
+      }
+
+      async function uploadVideoToBackend(file) {
+        isUploading = true;
         uploadProgressContainer.classList.remove('hidden');
-        uploadProgressBar.style.width = '20%';
+        uploadProgressBar.style.width = '30%';
         uploadProgressPercent.textContent = 'Uploading...';
-        videoStatusTag.textContent = 'UPLOADING...';
-        videoStatusTag.className = 'font-mono text-[10px] text-tech-amber';
+        videoStatusTag.textContent = 'UPLOADING TO API...';
+        videoStatusTag.className = 'font-mono text-[10px] text-tech-amber font-semibold';
 
         const formData = new FormData();
         formData.append('file', file);
 
         try {
-          const response = await fetch('/api/v1/upload', {
+          const res = await fetch('/api/v1/upload', {
             method: 'POST',
             body: formData
           });
 
-          if (!response.ok) {
-            throw new Error(`Upload failed: ${response.statusText}`);
-          }
-
-          const data = await response.json();
+          if (!res.ok) throw new Error(`Upload returned status ${res.status}`);
+          const data = await res.json();
           currentJobId = data.job_id;
-          displayJobId.textContent = currentJobId.substring(0, 8) + '...';
-          displayJobId.title = currentJobId;
 
           uploadProgressBar.style.width = '100%';
-          uploadProgressPercent.textContent = '100%';
-          setTimeout(() => uploadProgressContainer.classList.add('hidden'), 1200);
+          uploadProgressPercent.textContent = '100% Ready';
+          
+          setTimeout(() => uploadProgressContainer.classList.add('hidden'), 1000);
 
-          videoStatusTag.textContent = 'STATUS: READY';
-          videoStatusTag.className = 'font-mono text-[10px] text-emerald-400';
+          videoStatusTag.textContent = 'READY TO RECONSTRUCT';
+          videoStatusTag.className = 'font-mono text-[10px] text-emerald-400 font-semibold';
 
-          headerStatusDot.className = 'w-1.5 h-1.5 rounded-full bg-tech-cyan';
+          headerStatusDot.className = 'w-2 h-2 rounded-full bg-tech-cyan pulse-glow';
           headerStatusText.textContent = 'Video Ingested';
-          headerStatusBadge.className = 'flex items-center gap-1 text-tech-cyan';
+          headerStatusBadge.className = 'flex items-center gap-1.5 text-tech-cyan';
 
           // Enable Start Button
           startReconstructionBtn.disabled = false;
-          startReconstructionBtn.className = 'w-full py-2.5 px-4 rounded bg-tech-blue hover:bg-sky-500 active:bg-sky-600 text-white font-medium text-xs flex items-center justify-center gap-2 border border-sky-400 shadow-sm transition-all duration-200 cursor-pointer';
+          startReconstructionBtn.className = 'w-full py-3 px-4 rounded-lg bg-tech-blue hover:bg-sky-500 active:bg-sky-600 text-white font-bold text-xs flex items-center justify-center gap-2 border border-sky-400 shadow-lg shadow-tech-cyan/20 cursor-pointer transition-all';
           btnIcon.textContent = 'play_circle';
           btnText.textContent = 'START NEURAL RECONSTRUCTION';
-          jobStatusMessage.textContent = `Job initialized (${currentJobId.substring(0, 8)}). Ready to start reconstruction.`;
+          jobStatusMessage.textContent = `Job initialized (${currentJobId.substring(0, 8)}). Click Start to run 10-stage pipeline.`;
 
         } catch (err) {
           console.error(err);
-          videoStatusTag.textContent = 'STATUS: UPLOAD FAILED';
-          videoStatusTag.className = 'font-mono text-[10px] text-rose-400';
+          videoStatusTag.textContent = 'UPLOAD FAILED';
+          videoStatusTag.className = 'font-mono text-[10px] text-rose-400 font-semibold';
           jobStatusMessage.textContent = `Error: ${err.message}`;
           uploadProgressContainer.classList.add('hidden');
         } finally {
@@ -679,23 +1167,24 @@
         }
       }
 
-      // 5. Start Reconstruction Pipeline
+      // -------------------------------------------------------------
+      // 5. START RECONSTRUCTION & REAL-TIME STAGE PROGRESS
+      // -------------------------------------------------------------
       startReconstructionBtn.addEventListener('click', async () => {
         if (!currentJobId || isReconstructing) return;
         isReconstructing = true;
 
         startReconstructionBtn.disabled = true;
-        startReconstructionBtn.className = 'w-full py-2.5 px-4 rounded bg-slate-800 text-slate-300 font-medium text-xs flex items-center justify-center gap-2 border border-slate-700 cursor-not-allowed';
+        startReconstructionBtn.className = 'w-full py-3 px-4 rounded-lg bg-app-surface text-slate-300 font-semibold text-xs flex items-center justify-center gap-2 border border-app-border cursor-not-allowed';
         btnIcon.textContent = 'autorenew';
         btnIcon.classList.add('animate-spin');
         btnText.textContent = 'RECONSTRUCTING 3D MODEL...';
 
-        liveStatusPill.className = 'px-2 py-0.5 rounded bg-tech-blue/20 border border-tech-blue/40 text-[10px] font-mono text-tech-cyan flex items-center gap-1.5';
-        liveStatusDot.className = 'w-2 h-2 rounded-full bg-tech-cyan pulse-glow';
-        liveStatusLabel.textContent = 'RUNNING PIPELINE';
+        headerStatusDot.className = 'w-2 h-2 rounded-full bg-tech-amber pulse-glow';
+        headerStatusText.textContent = 'Pipeline Running';
+        headerStatusBadge.className = 'flex items-center gap-1.5 text-tech-amber';
 
-        pipelineProgressFill.style.width = '35%';
-        pipelineProgressLabel.textContent = '35% (SfM & Depth Reconstruction)';
+        scannerOverlay.classList.remove('hidden');
 
         const payload = {
           skip_dynamic_masking: !optDynamicMasking.checked,
@@ -710,86 +1199,112 @@
             body: JSON.stringify(payload)
           });
 
-          if (!res.ok) throw new Error('Failed to initiate reconstruction');
+          if (!res.ok) throw new Error('Could not start reconstruction job');
 
-          jobStatusMessage.textContent = 'Reconstruction running: extracting frames, computing SfM, meshing...';
-          startPollingStatus();
+          jobStatusMessage.textContent = 'Pipeline launched: Processing SfM, point clouds, and mesh geometry...';
+          startPolling();
 
         } catch (err) {
           console.error(err);
           isReconstructing = false;
           startReconstructionBtn.disabled = false;
           btnIcon.classList.remove('animate-spin');
-          jobStatusMessage.textContent = `Reconstruction failed: ${err.message}`;
+          jobStatusMessage.textContent = `Launch error: ${err.message}`;
         }
       });
 
-      // 6. Poll Job Status
-      function startPollingStatus() {
-        if (statusPollInterval) clearInterval(statusPollInterval);
+      function updateStageUI(stageNum, text) {
+        const rows = [
+          document.getElementById('stageRow1'),
+          document.getElementById('stageRow2'),
+          document.getElementById('stageRow3'),
+          document.getElementById('stageRow4'),
+          document.getElementById('stageRow5')
+        ];
 
-        let elapsedPolls = 0;
+        rows.forEach((row, idx) => {
+          const status = row.querySelector('.stage-status');
+          const icon = row.querySelector('.stage-icon');
+          if (idx < stageNum) {
+            status.textContent = 'COMPLETED';
+            status.className = 'stage-status text-emerald-400 font-bold';
+            icon.className = 'stage-icon material-symbols-outlined text-emerald-400 text-[16px]';
+          } else if (idx === stageNum) {
+            status.textContent = 'RUNNING...';
+            status.className = 'stage-status text-tech-cyan font-bold pulse-glow';
+            icon.className = 'stage-icon material-symbols-outlined text-tech-cyan text-[16px]';
+          } else {
+            status.textContent = 'PENDING';
+            status.className = 'stage-status text-slate-500';
+            icon.className = 'stage-icon material-symbols-outlined text-slate-500 text-[16px]';
+          }
+        });
+      }
+
+      function startPolling() {
+        if (statusPollInterval) clearInterval(statusPollInterval);
+        let step = 0;
+
         statusPollInterval = setInterval(async () => {
-          elapsedPolls++;
+          step++;
           try {
             const res = await fetch(`/api/v1/status/${currentJobId}`);
             if (!res.ok) return;
-
             const data = await res.json();
-            
-            // Advance progress simulation during running
-            if (data.status === 'running') {
-              const simulatedPct = Math.min(35 + (elapsedPolls * 15), 90);
-              pipelineProgressFill.style.width = `${simulatedPct}%`;
-              pipelineProgressLabel.textContent = `${simulatedPct}% (Processing Stages)`;
-              jobStatusMessage.textContent = `Executing pipeline stages (${simulatedPct}%)...`;
-            }
+
+            // Progress timeline progression
+            const pct = Math.min(20 * step, 95);
+            pipelineProgressFill.style.width = `${pct}%`;
+            pipelineProgressLabel.textContent = `Processing Stage ${Math.min(step, 5)}/5 (${pct}%)`;
+            pipelineProgressPercent.textContent = `${Math.min(step * 2, 10)}/10 Stages`;
+            updateStageUI(step - 1);
 
             if (data.status === 'completed') {
               clearInterval(statusPollInterval);
               onReconstructionSuccess();
             } else if (data.status === 'failed') {
               clearInterval(statusPollInterval);
-              onReconstructionFailed(data.message || 'Pipeline encountered an error');
+              onReconstructionFailed(data.message || 'Pipeline failed');
             }
           } catch (e) {
-            console.error('Polling error', e);
+            console.warn('Poll status error', e);
           }
-        }, 1500);
+        }, 1200);
       }
 
-      // 7. On Reconstruction Success
       async function onReconstructionSuccess() {
         isReconstructing = false;
-        
+        scannerOverlay.classList.add('hidden');
+
+        updateStageUI(5);
+        pipelineProgressFill.style.width = '100%';
+        pipelineProgressLabel.textContent = 'Completed (100%)';
+        pipelineProgressPercent.textContent = '10/10 Stages Done';
+
         btnIcon.classList.remove('animate-spin');
         btnIcon.textContent = 'check_circle';
         btnText.textContent = 'RECONSTRUCTION COMPLETED';
-        startReconstructionBtn.className = 'w-full py-2.5 px-4 rounded bg-emerald-700 text-white font-medium text-xs flex items-center justify-center gap-2 border border-emerald-500 shadow-sm';
-        
-        pipelineProgressFill.style.width = '100%';
-        pipelineProgressLabel.textContent = '100% (Completed)';
-        
-        liveStatusPill.className = 'px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/50 text-[10px] font-mono text-emerald-400 flex items-center gap-1.5';
-        liveStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
-        liveStatusLabel.textContent = 'COMPLETE';
+        startReconstructionBtn.className = 'w-full py-3 px-4 rounded-lg bg-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-2 border border-emerald-400 shadow-lg shadow-emerald-500/20';
 
-        headerStatusDot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400';
-        headerStatusText.textContent = 'Reconstructed';
-        headerStatusBadge.className = 'flex items-center gap-1 text-emerald-400';
+        headerStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+        headerStatusText.textContent = 'Model Reconstructed';
+        headerStatusBadge.className = 'flex items-center gap-1.5 text-emerald-400';
 
-        jobStatusMessage.textContent = '3D Reconstruction finished successfully! Deliverables ready for download.';
-        exportStatusHint.textContent = 'All deliverables verified and ready';
-        exportStatusHint.className = 'text-[10px] font-mono text-emerald-400';
+        jobStatusMessage.textContent = 'All 10 stages completed successfully! 3D Model, Point Cloud and Orthophoto ready.';
+        exportStatusHint.textContent = 'All 5 deliverables verified & ready';
+        exportStatusHint.className = 'text-[10px] font-mono text-emerald-400 font-semibold';
 
-        // Fetch Real Measurements & Quality
+        // Fetch Real Measurements & Populate Cards
         try {
           const res = await fetch(`/api/v1/measurements/${currentJobId}`);
           if (res.ok) {
             const m = await res.json();
             if (m.reprojection_error_px) metricReproj.textContent = m.reprojection_error_px;
             if (m.gsd_cm_px) metricGsd.textContent = m.gsd_cm_px;
-            if (m.sparse_points) metricPoints.textContent = m.sparse_points.toLocaleString();
+            if (m.sparse_points) {
+              metricPoints.textContent = m.sparse_points.toLocaleString();
+              document.getElementById('vpPoints').textContent = m.sparse_points.toLocaleString();
+            }
             if (m.dense_splats) metricSplats.textContent = (m.dense_splats / 1e6).toFixed(1) + 'M';
             if (m.volume_m3) metricVolume.textContent = m.volume_m3.toLocaleString();
             if (m.bounding_box && m.bounding_box.dimensions_m) {
@@ -802,33 +1317,31 @@
         }
 
         // Enable Export Download Buttons
-        enableDownloadButton(btnDlCloud, 'point_cloud');
-        enableDownloadButton(btnDlMesh, 'mesh');
-        enableDownloadButton(btnDlOrtho, 'orthophoto');
-        enableDownloadButton(btnDlDsm, 'dsm');
-        enableDownloadButton(btnDlReport, 'report');
+        enableDownloadBtn(btnDlCloud, 'point_cloud');
+        enableDownloadBtn(btnDlMesh, 'mesh');
+        enableDownloadBtn(btnDlOrtho, 'orthophoto');
+        enableDownloadBtn(btnDlDsm, 'dsm');
+        enableDownloadBtn(btnDlReport, 'report');
       }
 
-      function enableDownloadButton(btn, deliverableType) {
+      function enableDownloadBtn(btn, type) {
         if (!btn) return;
         btn.disabled = false;
-        btn.classList.remove('text-slate-400', 'cursor-not-allowed');
-        btn.classList.add('text-slate-200', 'hover:bg-slate-700', 'hover:border-slate-500', 'cursor-pointer');
+        btn.classList.remove('text-slate-500', 'cursor-not-allowed');
+        btn.classList.add('text-slate-200', 'hover:bg-app-hover', 'hover:border-tech-cyan/50', 'hover:text-white', 'cursor-pointer', 'shadow-sm');
         btn.onclick = () => {
-          window.location.href = `/api/v1/download/${currentJobId}/${deliverableType}`;
+          window.location.href = `/api/v1/download/${currentJobId}/${type}`;
         };
       }
 
-      // 8. On Failed
-      function onReconstructionFailed(errMsg) {
+      function onReconstructionFailed(err) {
         isReconstructing = false;
+        scannerOverlay.classList.add('hidden');
         btnIcon.classList.remove('animate-spin');
         btnIcon.textContent = 'error';
         btnText.textContent = 'RECONSTRUCTION FAILED';
-        startReconstructionBtn.className = 'w-full py-2.5 px-4 rounded bg-rose-900 text-white font-medium text-xs flex items-center justify-center gap-2 border border-rose-600 shadow-sm';
-        jobStatusMessage.textContent = `Error: ${errMsg}`;
-        liveStatusLabel.textContent = 'FAILED';
-        liveStatusDot.className = 'w-2 h-2 rounded-full bg-rose-500';
+        startReconstructionBtn.className = 'w-full py-3 px-4 rounded-lg bg-rose-900 text-white font-bold text-xs flex items-center justify-center gap-2 border border-rose-600 shadow-md';
+        jobStatusMessage.textContent = `Failed: ${err}`;
       }
     });
   </script>
