@@ -74,22 +74,21 @@ class ReconstructionPipeline:
     def _stage_quality_filtering(self):
         logger.info("Stage 2/10: Filtering frames for sharpness and exposure")
         quality_filter = QualityFilter(self.config.quality)
-        scores = quality_filter.batch_evaluate(self.extracted_frames)
-        # Retain good frames
-        self.valid_frames = [
-            path for path, score in scores.items() 
-            if score.is_usable and not score.is_blurry
-        ]
+        self.valid_frames = quality_filter.filter_frames(self.extracted_frames)
         if not self.valid_frames:
-            self.valid_frames = self.extracted_frames # Fallback if all strictly filtered
+            self.valid_frames = self.extracted_frames  # Fallback if all strictly filtered
         logger.info(f"Retained {len(self.valid_frames)} / {len(self.extracted_frames)} high quality frames")
 
     def _stage_keyframe_selection(self):
         logger.info("Stage 3/10: Selecting optimal keyframes for multi-view geometry")
-        if len(self.valid_frames) > 20:
-            step = max(1, len(self.valid_frames) // 20)
-            self.keyframes = self.valid_frames[::step]
-        else:
+        try:
+            selector = KeyframeSelector(self.config.keyframe)
+            self.keyframes = selector.select_keyframes(self.valid_frames)
+        except Exception as e:
+            logger.warning(f"Keyframe selection fallback: {e}")
+            self.keyframes = self.valid_frames
+            
+        if not self.keyframes:
             self.keyframes = self.valid_frames
         logger.info(f"Selected {len(self.keyframes)} keyframes for 3D reconstruction")
 

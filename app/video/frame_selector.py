@@ -17,21 +17,21 @@ class KeyframeSelector:
     def compute_optical_flow(self, prev_img: np.ndarray, curr_img: np.ndarray) -> float:
         """
         Compute the average optical flow magnitude between two grayscale images.
-        
-        Args:
-            prev_img: Previous frame as grayscale image.
-            curr_img: Current frame as grayscale image.
-            
-        Returns:
-            Average optical flow magnitude across the entire frame.
         """
-        # Dense optical flow using Farneback method
+        # Downscale for high-speed optical flow calculation
+        h, w = prev_img.shape[:2]
+        if w > 480:
+            scale = 480.0 / w
+            prev_small = cv2.resize(prev_img, (480, int(h * scale)))
+            curr_small = cv2.resize(curr_img, (480, int(h * scale)))
+        else:
+            prev_small, curr_small = prev_img, curr_img
+
         flow = cv2.calcOpticalFlowFarneback(
-            prev_img, curr_img, None,
-            pyr_scale=0.5, levels=3, winsize=15,
-            iterations=3, poly_n=5, poly_sigma=1.2, flags=0
+            prev_small, curr_small, None,
+            pyr_scale=0.5, levels=2, winsize=11,
+            iterations=2, poly_n=5, poly_sigma=1.1, flags=0
         )
-        # Compute magnitude and angle of 2D vectors
         mag, _ = cv2.cartToPolar(flow[..., 0], flow[..., 1])
         return float(np.mean(mag))
 
@@ -89,13 +89,19 @@ class KeyframeSelector:
                     flow_mag = self.compute_optical_flow(prev_img, curr_img)
                     if flow_mag >= self.config.min_optical_flow:
                         baseline_sufficient = True
-                
+
             if baseline_sufficient:
                 selected.append(curr_path)
                 if curr_img is None:
                     curr_img = cv2.imread(str(curr_path), cv2.IMREAD_GRAYSCALE)
                 prev_img = curr_img
                 prev_path = curr_path
+
+        # If optical flow selected too few frames (e.g. ultra smooth drone pass), sample evenly
+        min_desired = min(20, len(image_paths))
+        if len(selected) < min_desired:
+            step = max(1, len(image_paths) // min_desired)
+            selected = image_paths[::step]
 
         logger.info(f"Selected {len(selected)} keyframes from {len(image_paths)} total frames.")
         return selected
