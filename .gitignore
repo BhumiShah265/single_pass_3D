@@ -32,3 +32,5 @@ data/input/*
 # Logs & temp
 *.log
 scratch/
+scratch_frame.jpg
+*.pt

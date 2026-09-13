@@ -28,6 +28,11 @@ def create_app() -> FastAPI:
         async def serve_index():
             return FileResponse(str(frontend_dir / "index.html"))
 
+    # Mount data directory for direct GLB, texture, and point access
+    data_dir = Path(__file__).resolve().parent.parent / "data"
+    if data_dir.exists():
+        app.mount("/data", StaticFiles(directory=str(data_dir)), name="data")
+
     return app
 
 app = create_app()
