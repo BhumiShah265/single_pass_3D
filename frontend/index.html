@@ -176,7 +176,7 @@
 
           <!-- Drag and Drop Target Box -->
           <div id="dropZone" class="bg-app-bg border-2 border-dashed border-app-border rounded-lg p-3.5 flex flex-col gap-3 hover:border-tech-cyan transition-all cursor-pointer relative group">
-            <input type="file" id="videoFileInput" accept="video/mp4,video/quicktime,video/x-matroska,video/webm" class="hidden" />
+            <input type="file" id="videoFileInput" accept="video/*,.mp4,.MP4,.mov,.MOV,.mkv,.MKV,.webm,.avi" class="sr-only absolute" />
             
             <div class="flex items-start justify-between gap-3">
               <div class="flex items-start gap-3 min-w-0">
@@ -188,7 +188,7 @@
                   <p id="videoFileSpecs" class="font-mono text-[10px] text-slate-400">Select .MP4 / .MOV aerial pass</p>
                 </div>
               </div>
-              <button type="button" id="browseBtn" class="px-2.5 py-1 text-[11px] rounded bg-app-surface border border-app-border text-slate-200 hover:text-white hover:bg-app-hover transition-colors shrink-0 font-medium">
+              <button type="button" id="browseBtn" class="px-2.5 py-1 text-[11px] rounded bg-app-surface border border-app-border text-slate-200 hover:text-white hover:bg-app-hover transition-colors shrink-0 font-medium cursor-pointer">
                 Browse
               </button>
             </div>
@@ -234,6 +234,23 @@
               </div>
             </div>
 
+          </div>
+
+          <!-- Quick-Load Survey Datasets -->
+          <div class="flex flex-col gap-1.5 pt-1">
+            <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+              <span>Quick-Load Survey Datasets:</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" id="loadPresetMountain" class="px-2 py-1.5 rounded bg-app-surface border border-app-border hover:border-tech-cyan/60 hover:bg-app-hover transition-colors text-[10px] font-mono text-slate-300 flex items-center justify-center gap-1.5 cursor-pointer text-left">
+                <span class="material-symbols-outlined text-[14px] text-tech-cyan">landscape</span>
+                <span class="truncate">Mountain Pass</span>
+              </button>
+              <button type="button" id="loadPresetSuburban" class="px-2 py-1.5 rounded bg-app-surface border border-app-border hover:border-tech-cyan/60 hover:bg-app-hover transition-colors text-[10px] font-mono text-slate-300 flex items-center justify-center gap-1.5 cursor-pointer text-left">
+                <span class="material-symbols-outlined text-[14px] text-amber-400">home</span>
+                <span class="truncate">Suburban Sector</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1654,8 +1671,6 @@
 
       // 3D Distance Measurement Tool
       const measureRulerBtn = document.getElementById('measureRulerBtn');
-      const raycaster = new THREE.Raycaster();
-      const mouse = new THREE.Vector2();
       let isRulerActive = false;
       let rulerPoints = [];
       let rulerLine = null;
@@ -2302,48 +2317,69 @@
       }
 
       // Expose globally for browser test/external interaction
-      window.loadJobModel = async (jobId) => {
+      // Helper to load any job model and its metadata/video preview
+      async function loadJobById(jobId) {
+        if (!jobId) return;
         currentJobId = jobId;
+        if (emptyStateOverlay) emptyStateOverlay.classList.add('hidden');
+
+        try {
+          const dRes = await fetch(`/api/v1/job-details/${currentJobId}`);
+          if (dRes.ok) {
+            const d = await dRes.json();
+            if (d.filename) {
+              if (videoFileName) videoFileName.textContent = d.filename;
+              if (headerProjectName) headerProjectName.textContent = d.filename.replace(/\.[^/.]+$/, "");
+              const resStr = `${d.width} × ${d.height}`;
+              const durStr = formatTime(d.duration_s);
+              const szStr = formatBytes(d.file_size);
+              if (videoFileSpecs) videoFileSpecs.textContent = `${d.width}×${d.height} • ${durStr} • ${szStr}`;
+              if (metaResolution) metaResolution.textContent = resStr;
+              if (metaDuration) metaDuration.textContent = durStr;
+              if (metaSize) metaSize.textContent = szStr;
+              if (videoPlaybackTime) videoPlaybackTime.textContent = `00:00 / ${durStr}`;
+            }
+            if (d.video_url) {
+              if (html5VideoPlayer) html5VideoPlayer.src = d.video_url;
+              if (largeCanvasVideo) largeCanvasVideo.src = d.video_url;
+              if (videoPreviewBox) videoPreviewBox.classList.remove('hidden');
+            }
+          }
+        } catch (err) {
+          console.warn('Job details fetch error', err);
+        }
+
         await onReconstructionSuccess();
-      };
+      }
+
+      window.loadJobModel = loadJobById;
+
+      document.getElementById('loadPresetMountain')?.addEventListener('click', () => {
+        loadJobById('375a79a3-6d01-44b4-ba91-e762d7cf0664');
+      });
+      document.getElementById('loadPresetSuburban')?.addEventListener('click', () => {
+        loadJobById('4de4327a-d93a-48cb-89dd-4c5812009f5f');
+      });
 
       // Auto-load latest reconstruction or job from query param
       async function autoLoadLatestJob() {
         const urlParams = new URLSearchParams(window.location.search);
         let targetJob = urlParams.get('job_id');
-        // Do not auto-fetch /api/v1/latest so the user always starts with a clean upload screen
-        if (targetJob) {
-          currentJobId = targetJob;
-          if (emptyStateOverlay) emptyStateOverlay.classList.add('hidden');
-
-          // Populate video details and stream preview for the loaded job
+        if (!targetJob) {
           try {
-            const dRes = await fetch(`/api/v1/job-details/${currentJobId}`);
-            if (dRes.ok) {
-              const d = await dRes.json();
-              if (d.filename) {
-                if (videoFileName) videoFileName.textContent = d.filename;
-                if (headerProjectName) headerProjectName.textContent = d.filename.replace(/\.[^/.]+$/, "");
-                const resStr = `${d.width} × ${d.height}`;
-                const durStr = formatTime(d.duration_s);
-                const szStr = formatBytes(d.file_size);
-                if (videoFileSpecs) videoFileSpecs.textContent = `${d.width}×${d.height} • ${durStr} • ${szStr}`;
-                if (metaResolution) metaResolution.textContent = resStr;
-                if (metaDuration) metaDuration.textContent = durStr;
-                if (metaSize) metaSize.textContent = szStr;
-                if (videoPlaybackTime) videoPlaybackTime.textContent = `00:00 / ${durStr}`;
-              }
-              if (d.video_url) {
-                if (html5VideoPlayer) html5VideoPlayer.src = d.video_url;
-                if (largeCanvasVideo) largeCanvasVideo.src = d.video_url;
-                if (videoPreviewBox) videoPreviewBox.classList.remove('hidden');
+            const lRes = await fetch('/api/v1/latest');
+            if (lRes.ok) {
+              const lData = await lRes.json();
+              if (lData && lData.job_id) {
+                targetJob = lData.job_id;
               }
             }
-          } catch (err) {
-            console.warn('Job details fetch error', err);
+          } catch (e) {
+            console.warn('Could not auto-fetch latest job', e);
           }
-
-          await onReconstructionSuccess();
+        }
+        if (targetJob) {
+          await loadJobById(targetJob);
         }
       }
 

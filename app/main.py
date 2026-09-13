@@ -23,8 +23,10 @@ def create_app() -> FastAPI:
         assets_dir = frontend_dir / "assets"
         assets_dir.mkdir(parents=True, exist_ok=True)
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+        app.mount("/frontend", StaticFiles(directory=str(frontend_dir)), name="frontend")
         
-        @app.get("/", include_in_schema=False)
+        @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+        @app.api_route("/index.html", methods=["GET", "HEAD"], include_in_schema=False)
         async def serve_index():
             return FileResponse(str(frontend_dir / "index.html"))
 
