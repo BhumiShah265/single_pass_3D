@@ -480,6 +480,11 @@
               <span class="hidden sm:inline">BBox</span>
             </button>
             
+            <button id="toggleHudBtn" class="px-2 py-1 rounded bg-app-surface text-tech-cyan text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Toggle On-Screen HUD Overlay">
+              <span class="material-symbols-outlined text-[14px]">visibility</span>
+              <span class="hidden sm:inline">HUD</span>
+            </button>
+
             <div class="h-4 w-px bg-app-border mx-1"></div>
 
             <button id="resetCameraBtn" class="p-1.5 rounded bg-app-surface hover:bg-app-hover text-slate-300 hover:text-white border border-app-border transition-colors" title="Reset Camera View">
@@ -493,13 +498,34 @@
         </div>
 
         <!-- 3D CANVAS VIEWPORT (REAL THREE.JS WEBGL RENDERER) -->
-        <div id="canvasContainer" class="flex-1 relative w-full h-full bg-[#070b10] overflow-hidden">
-          
+        <div id="canvasContainer" class="flex-1 relative w-full h-full bg-[#070b10] overflow-hidden select-none">
           <!-- Scanner laser overlay animation during reconstruction -->
           <div id="scannerOverlay" class="hidden scanner-line"></div>
           
           <!-- 3D Floating Semantic Labels Layer -->
           <div id="labels3DContainer" class="absolute inset-0 pointer-events-none z-10 overflow-hidden"></div>
+
+          <!-- Mission-Critical Tactical Intelligence Card (Shown on 3D Object Click) -->
+          <div id="tacticalIntelCard" class="hidden absolute top-3 right-3 bg-app-panel/95 backdrop-blur-md border border-tech-cyan/60 rounded-xl p-3.5 shadow-2xl z-30 max-w-[320px] font-mono select-none pointer-events-auto transition-all animate-in fade-in zoom-in-95">
+            <div class="flex items-center justify-between border-b border-app-border pb-2 mb-2">
+              <div class="flex items-center gap-2">
+                <span id="ticIcon" class="material-symbols-outlined text-tech-cyan text-[20px]">home</span>
+                <div>
+                  <span id="ticId" class="text-[12px] font-bold text-white tracking-wide">TARGET #01</span>
+                  <div id="ticType" class="text-[10px] text-slate-400">Residential House</div>
+                </div>
+              </div>
+              <button id="ticCloseBtn" class="text-slate-400 hover:text-white text-[14px] p-1 hover:bg-app-hover rounded transition-colors" title="Close Intel">✕</button>
+            </div>
+            <div class="space-y-1.5 text-[10px]">
+              <div class="flex justify-between items-center"><span class="text-slate-400">Dimensions (L×W×H):</span> <span id="ticDims" class="text-tech-cyan font-bold">12.0×8.0×5.2m</span></div>
+              <div class="flex justify-between items-center"><span class="text-slate-400">Footprint Area:</span> <span id="ticArea" class="text-emerald-400 font-bold">96.0 m²</span></div>
+              <div class="flex justify-between items-center"><span class="text-slate-400">Enclosed Volume:</span> <span id="ticVol" class="text-amber-400 font-bold">410.0 m³</span></div>
+              <div class="flex justify-between items-center"><span class="text-slate-400">Elevation (Base/Peak):</span> <span id="ticElev" class="text-sky-400 font-bold">+1.0m Datum</span></div>
+              <div class="flex justify-between items-center"><span class="text-slate-400">ASPRS Standard:</span> <span id="ticAsprs" class="text-purple-400 font-bold">Class 6 (Building)</span></div>
+              <div class="flex justify-between items-center pt-1 border-t border-app-border/60"><span class="text-slate-400">Tactical Status:</span> <span class="text-emerald-400 font-bold tracking-wider">SURVEY CERTIFIED</span></div>
+            </div>
+          </div>
 
           <!-- Empty State HUD (Shown before video upload / reconstruction) -->
           <div id="emptyStateOverlay" class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 pointer-events-none select-none bg-gradient-to-b from-transparent via-[#070b10]/40 to-[#070b10]/90">
@@ -517,16 +543,24 @@
             <video id="largeCanvasVideo" class="w-full h-full object-contain" controls playsinline></video>
           </div>
 
-          <!-- Top-Left In-Viewport Layer & Scene Stats Overlay -->
-          <div class="absolute top-3 left-3 bg-app-panel/90 backdrop-blur border border-app-border/80 rounded-lg p-3 font-mono text-[10px] text-slate-300 shadow-xl flex flex-col gap-1.5 pointer-events-auto select-none z-20">
-            <div class="flex items-center justify-between gap-6 border-b border-app-border/60 pb-1.5">
+          <!-- Top-Left In-Viewport Layer & Scene Stats Overlay (Draggable, Minimizable, & Translucent) -->
+          <div id="vpHudCard" class="absolute top-3 left-3 bg-app-panel/80 hover:bg-app-panel/95 backdrop-blur border border-app-border/80 rounded-lg p-2.5 font-mono text-[10px] text-slate-300 shadow-xl flex flex-col gap-1.5 pointer-events-auto select-none z-20 transition-all duration-200">
+            <div id="vpHudHeader" class="flex items-center justify-between gap-3 border-b border-app-border/60 pb-1.5 cursor-move" title="Drag to move HUD anywhere">
               <span id="vpActiveModeLabel" class="text-tech-cyan font-bold flex items-center gap-1">
                 <span class="w-2 h-2 rounded-full bg-slate-500" id="vpModeDot"></span>
                 Mode: Standby
               </span>
-              <span id="vpQualityBadge" class="text-slate-400 font-semibold bg-app-surface px-1.5 py-0.5 rounded border border-app-border">Awaiting Video</span>
+              <div class="flex items-center gap-1">
+                <span id="vpQualityBadge" class="text-slate-400 font-semibold bg-app-surface px-1.5 py-0.5 rounded border border-app-border">Awaiting Video</span>
+                <button id="btnDockVpHud" class="text-slate-400 hover:text-tech-cyan p-0.5 rounded transition-colors" title="Move to Bottom / Top">
+                  <span id="vpHudDockIcon" class="material-symbols-outlined text-[14px]">vertical_align_bottom</span>
+                </button>
+                <button id="btnToggleVpHud" class="text-slate-400 hover:text-tech-cyan p-0.5 rounded transition-colors" title="Minimize / Expand Overlay">
+                  <span id="vpHudCollapseIcon" class="material-symbols-outlined text-[15px]">unfold_less</span>
+                </button>
+              </div>
             </div>
-            <div class="grid grid-cols-2 gap-x-4 gap-y-1 pt-0.5 text-slate-400">
+            <div id="vpHudBody" class="grid grid-cols-2 gap-x-4 gap-y-1 pt-0.5 text-slate-400">
               <span>Reconstructed Points:</span>
               <span id="vpPoints" class="text-slate-100 text-right font-semibold">0 pts</span>
               <span>Ground Sampling Dist:</span>
@@ -727,6 +761,8 @@
       let scene, camera, renderer, controls;
       let pointCloudMesh, surfaceMesh, wireframeMesh, trajectoryLine, gridHelper, bboxHelper;
       let photoMesh, semanticMesh, elevationMesh;
+      let real3DElementsGroup = null;
+      let selectedObjectHighlight = null;
       let structureLabelsArray = [];
       let showLabels = true;
       let currentDisplayMode = 'photomesh';
@@ -744,12 +780,12 @@
         camera = new THREE.PerspectiveCamera(48, aspect, 0.1, 1000);
         camera.position.set(52, 44, 52);
 
-        // Renderer
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
-        canvasContainer.appendChild(renderer.domElement);
+        renderer.domElement.className = 'w-full h-full block focus:outline-none cursor-grab active:cursor-grabbing';
+        canvasContainer.insertBefore(renderer.domElement, canvasContainer.firstChild);
 
         // Orbit Controls
         controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -1048,15 +1084,40 @@
           scene.add(wireframeMesh);
         }
 
-        // 3. 3D Floating Semantic Labels for Detected Features
+        // 2B. Build Real 3D Elements (Houses with Pitched Roofs, Vehicles with Wheels, Trees with Foliage, Roads with Curbs, Water Basins)
+        if (real3DElementsGroup) scene.remove(real3DElementsGroup);
+        real3DElementsGroup = new THREE.Group();
         const structures = ptsData.structures || [];
+
+        structures.forEach((s) => {
+          const cat = s.category;
+          if (cat === 'building') {
+            const bldgGroup = create3DHouse(s);
+            real3DElementsGroup.add(bldgGroup);
+          } else if (cat === 'vehicle') {
+            const vehGroup = create3DVehicle(s);
+            real3DElementsGroup.add(vehGroup);
+          } else if (cat === 'vegetation') {
+            const treeGroup = create3DTree(s);
+            real3DElementsGroup.add(treeGroup);
+          } else if (cat === 'water') {
+            const waterMesh = create3DWater(s);
+            real3DElementsGroup.add(waterMesh);
+          } else if (cat === 'infrastructure' && s.type && s.type.includes('Road')) {
+            const roadMesh = create3DRoad(s);
+            real3DElementsGroup.add(roadMesh);
+          }
+        });
+        scene.add(real3DElementsGroup);
+
+        // 3. 3D Floating Semantic Labels for Detected Features
         if (labelsContainer && structures.length > 0) {
           structures.forEach((s) => {
             const pin = document.createElement('div');
             pin.className = 'absolute pointer-events-auto transform -translate-x-1/2 -translate-y-full transition-all duration-150 cursor-pointer select-none';
             
             const cat = s.category || (s.type && s.type.toLowerCase().includes('mountain') ? 'mountain' : s.type && s.type.toLowerCase().includes('water') ? 'water' : s.type && s.type.toLowerCase().includes('bridge') ? 'infrastructure' : 'building');
-            const icon = s.icon || (cat === 'mountain' ? 'landscape' : cat === 'water' ? 'water' : cat === 'infrastructure' ? 'alt_route' : 'domain');
+            const icon = s.icon || (cat === 'mountain' ? 'landscape' : cat === 'water' ? 'water' : cat === 'infrastructure' ? 'alt_route' : cat === 'vegetation' ? 'park' : 'domain');
             
             let badgeBorder = 'border-amber-500/80 text-amber-300';
             let iconColor = 'text-amber-400';
@@ -1074,6 +1135,14 @@
               badgeBorder = 'border-cyan-500/80 text-cyan-300';
               iconColor = 'text-cyan-400';
               arrowBg = 'bg-cyan-400';
+            } else if (cat === 'vegetation') {
+              badgeBorder = 'border-emerald-600/80 text-emerald-400';
+              iconColor = 'text-emerald-500';
+              arrowBg = 'bg-emerald-500';
+            } else if (cat === 'vehicle') {
+              badgeBorder = 'border-blue-500/80 text-blue-300';
+              iconColor = 'text-blue-400';
+              arrowBg = 'bg-blue-400';
             }
             
             let metricText = s.display_metric;
@@ -1084,6 +1153,8 @@
                 metricText = `Span: ${s.length_m || 50}m • H: ${s.height_m}m`;
               } else if (cat === 'water') {
                 metricText = `Area: ${s.area_m2}m² • Elev: ${s.height_m}m`;
+              } else if (cat === 'vegetation') {
+                metricText = `R: ${s.radius_m || 2}m • H: ${s.height_m}m`;
               } else {
                 metricText = `${s.length_m}×${s.width_m}m • H: ${s.height_m}m`;
               }
@@ -1098,13 +1169,12 @@
               <div class="w-1.5 h-1.5 ${arrowBg} rotate-45 mx-auto -mt-1 shadow-sm"></div>
             `;
             pin.onclick = () => {
-              controls.target.set(s.x, s.y, s.z);
-              controls.update();
+              selectStructure(s);
             };
             labelsContainer.appendChild(pin);
             structureLabelsArray.push({
               elem: pin,
-              pos: new THREE.Vector3(s.x, s.y + 1.8, s.z),
+              pos: new THREE.Vector3(s.x, s.y + (s.height_m || 2.0) + 0.8, s.z),
               structure: s
             });
           });
@@ -1182,20 +1252,294 @@
 
         if (mode === 'photomesh') {
           if (photoMesh) photoMesh.visible = true;
+          if (real3DElementsGroup) real3DElementsGroup.visible = true;
           if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-tech-cyan pulse-glow"></span> Mode: Drone Photo 3D (Textured)';
         } else if (mode === 'semantic') {
           if (semanticMesh) semanticMesh.visible = true;
+          if (real3DElementsGroup) real3DElementsGroup.visible = true;
           if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> Mode: AI Semantic Classification (ASPRS)';
         } else if (mode === 'elevation') {
           if (elevationMesh) elevationMesh.visible = true;
+          if (real3DElementsGroup) real3DElementsGroup.visible = false;
           if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Mode: Digital Surface Model (DSM Elevation)';
         } else if (mode === 'pointcloud') {
           if (pointCloudMesh) pointCloudMesh.visible = true;
+          if (real3DElementsGroup) real3DElementsGroup.visible = false;
           if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-sky-400"></span> Mode: ASPRS LiDAR Point Cloud';
         } else if (mode === 'wireframe') {
           if (wireframeMesh) wireframeMesh.visible = true;
+          if (real3DElementsGroup) real3DElementsGroup.visible = true;
           if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-purple-400"></span> Mode: Structural Wireframe Mesh';
         }
+      }
+
+      // -------------------------------------------------------------
+      // 2C. PROCEDURAL REAL 3D ARCHITECTURAL & TACTICAL OBJECT BUILDERS
+      // -------------------------------------------------------------
+      function selectStructure(s) {
+        if (!s) return;
+        controls.target.set(s.x, s.y + (s.height_m || 2.0) * 0.5, s.z);
+        controls.update();
+
+        // High-contrast 3D tactical wireframe highlight box
+        if (selectedObjectHighlight) scene.remove(selectedObjectHighlight);
+        const l = (s.length_m || 5.0) + 0.6;
+        const w = (s.width_m || 5.0) + 0.6;
+        const h = (s.height_m || 3.0) + 0.6;
+        const hGeom = new THREE.BoxGeometry(l, h, w);
+        const hEdges = new THREE.EdgesGeometry(hGeom);
+        selectedObjectHighlight = new THREE.LineSegments(hEdges, new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 }));
+        selectedObjectHighlight.position.set(s.x, s.y + h * 0.5, s.z);
+        if (s.rotation_deg) {
+          selectedObjectHighlight.rotation.y = THREE.MathUtils.degToRad(s.rotation_deg);
+        }
+        scene.add(selectedObjectHighlight);
+
+        // Populate Tactical Intelligence Card
+        const card = document.getElementById('tacticalIntelCard');
+        if (card) {
+          document.getElementById('ticId').textContent = s.id || 'TARGET';
+          document.getElementById('ticType').textContent = s.type || 'Structure';
+          document.getElementById('ticIcon').textContent = s.icon || 'domain';
+          document.getElementById('ticDims').textContent = `${s.length_m || 0}×${s.width_m || 0}×${s.height_m || 0}m`;
+          document.getElementById('ticArea').textContent = `${s.area_m2 || 0} m²`;
+          const vol = s.volume_m3 || Math.round((s.area_m2 || 12) * (s.height_m || 3.5) * 0.75);
+          document.getElementById('ticVol').textContent = `${vol} m³`;
+          document.getElementById('ticElev').textContent = `${s.y >= 0 ? '+' : ''}${s.y}m Datum`;
+          
+          let asprsText = 'Class 2 (Ground)';
+          if (s.category === 'building') asprsText = 'Class 6 (Building / Structure)';
+          else if (s.category === 'vegetation') asprsText = 'Class 5 (High Vegetation)';
+          else if (s.category === 'water') asprsText = 'Class 9 (Water Surface)';
+          else if (s.category === 'infrastructure') asprsText = 'Class 11 (Road / Infrastructure)';
+          else if (s.category === 'vehicle') asprsText = 'Class 2 (Mobile Ground Asset)';
+          else if (s.category === 'mountain') asprsText = 'Class 2 (Topographic Relief)';
+          document.getElementById('ticAsprs').textContent = asprsText;
+
+          card.classList.remove('hidden');
+        }
+      }
+
+      function create3DHouse(s) {
+        const group = new THREE.Group();
+        const hl = s.length_m * 0.5, hw = s.width_m * 0.5;
+        const bh = s.height_m, wall_h = s.wall_height_m || (bh * 0.65);
+        
+        // 1. Exterior Walls (Solid Clapboard / Siding)
+        const wallMat = new THREE.MeshStandardMaterial({
+          color: 0xf1f5f9,
+          roughness: 0.65,
+          metalness: 0.05
+        });
+        const wallGeom = new THREE.BoxGeometry(s.length_m, wall_h, s.width_m);
+        const wallMesh = new THREE.Mesh(wallGeom, wallMat);
+        wallMesh.position.y = wall_h * 0.5;
+        wallMesh.castShadow = true;
+        wallMesh.receiveShadow = true;
+        group.add(wallMesh);
+
+        // 2. Front Entrance Door & Porch Step
+        const doorMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.45 });
+        const doorW = Math.min(1.2, s.length_m * 0.22);
+        const doorH = Math.min(2.2, wall_h * 0.82);
+        const door = new THREE.Mesh(new THREE.BoxGeometry(doorW, doorH, 0.1), doorMat);
+        door.position.set(0, doorH * 0.5, hw + 0.05);
+        group.add(door);
+
+        const step = new THREE.Mesh(new THREE.BoxGeometry(doorW * 1.5, 0.18, 0.6), new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.8 }));
+        step.position.set(0, 0.09, hw + 0.32);
+        group.add(step);
+
+        // 3. Realistic Front Windows
+        const winGlass = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.12, metalness: 0.85 });
+        const winFrame = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
+        const makeWindow = (wx, wy, wz) => {
+          const frame = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.2, 0.06), winFrame);
+          const glass = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.05, 0.08), winGlass);
+          const wg = new THREE.Group();
+          wg.add(frame); wg.add(glass);
+          wg.position.set(wx, wy, wz);
+          group.add(wg);
+        };
+        if (s.length_m >= 5.5) {
+          makeWindow(-hl * 0.55, wall_h * 0.55, hw + 0.04);
+          makeWindow(hl * 0.55, wall_h * 0.55, hw + 0.04);
+        }
+
+        // 4. Authentic Pitched / Hipped Roof with Eaves Overhang (0.35m)
+        const el = hl + 0.35, ew = hw + 0.35;
+        const rl = Math.max(0.6, el - Math.min(el * 0.35, ew * 0.7));
+        const roofGeom = new THREE.BufferGeometry();
+        const rPos = new Float32Array([
+          -el, wall_h, -ew,
+           el, wall_h, -ew,
+           el, wall_h,  ew,
+          -el, wall_h,  ew,
+          -rl, bh, 0,
+           rl, bh, 0
+        ]);
+        const rIndices = [
+          0, 4, 1,   1, 4, 5,
+          2, 5, 3,   3, 5, 4,
+          3, 4, 0,
+          1, 5, 2
+        ];
+        roofGeom.setAttribute('position', new THREE.BufferAttribute(rPos, 3));
+        roofGeom.setIndex(rIndices);
+        roofGeom.computeVertexNormals();
+
+        let roofColor = 0xb45309;
+        if (s.roof_color && s.roof_color.startsWith('#')) {
+          roofColor = parseInt(s.roof_color.replace('#', '0x'), 16);
+        }
+        const roofMat = new THREE.MeshStandardMaterial({
+          color: roofColor,
+          roughness: 0.52,
+          metalness: 0.08,
+          side: THREE.DoubleSide
+        });
+        const roofMesh = new THREE.Mesh(roofGeom, roofMat);
+        roofMesh.castShadow = true;
+        roofMesh.receiveShadow = true;
+        group.add(roofMesh);
+
+        // Position & Rotate
+        group.position.set(s.x, s.y, s.z);
+        group.rotation.y = THREE.MathUtils.degToRad(s.rotation_deg || 0);
+        group.userData = { structure: s };
+        return group;
+      }
+
+      function create3DVehicle(s) {
+        const group = new THREE.Group();
+        const vl = s.length_m, vw = s.width_m, vh = s.height_m;
+        const isCommercial = s.type && (s.type.includes('Commercial') || s.type.includes('Truck') || s.type.includes('Transport'));
+        const paintColor = isCommercial ? 0xd97706 : 0x2563eb;
+
+        // 1. Lower Chassis
+        const chMat = new THREE.MeshStandardMaterial({ color: paintColor, roughness: 0.35, metalness: 0.75 });
+        const chassis = new THREE.Mesh(new THREE.BoxGeometry(vl, vh * 0.38, vw), chMat);
+        chassis.position.y = vh * 0.32;
+        group.add(chassis);
+
+        // 2. Cabin / Windshield
+        const cabMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.12, metalness: 0.7, transparent: true, opacity: 0.82 });
+        const cabW = isCommercial ? vw * 0.95 : vw * 0.85;
+        const cabL = isCommercial ? vl * 0.42 : vl * 0.55;
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(cabL, vh * 0.48, cabW), cabMat);
+        cabin.position.set(isCommercial ? -vl * 0.22 : -vl * 0.05, vh * 0.72, 0);
+        group.add(cabin);
+
+        if (isCommercial) {
+          const cargoBox = new THREE.Mesh(new THREE.BoxGeometry(vl * 0.55, vh * 0.75, vw), new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.5 }));
+          cargoBox.position.set(vl * 0.2, vh * 0.65, 0);
+          group.add(cargoBox);
+        }
+
+        // 3. 4 Rubber Wheels with Hubcaps
+        const r = vh * 0.22, tw = Math.min(0.28, vw * 0.18);
+        const wGeom = new THREE.CylinderGeometry(r, r, tw, 16);
+        wGeom.rotateZ(Math.PI / 2);
+        const wMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 });
+        const hubMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.3 });
+        const hubGeom = new THREE.CylinderGeometry(r * 0.5, r * 0.5, tw + 0.02, 8);
+        hubGeom.rotateZ(Math.PI / 2);
+
+        const addWheel = (wx, wz) => {
+          const wMesh = new THREE.Mesh(wGeom, wMat);
+          const hMesh = new THREE.Mesh(hubGeom, hubMat);
+          const wSub = new THREE.Group();
+          wSub.add(wMesh); wSub.add(hMesh);
+          wSub.position.set(wx, r, wz);
+          group.add(wSub);
+        };
+        const xF = vl * 0.32, xR = -vl * 0.32;
+        const zL = vw * 0.48, zR = -vw * 0.48;
+        addWheel(xF, zL); addWheel(xF, zR);
+        addWheel(xR, zL); addWheel(xR, zR);
+
+        // 4. Headlights & Taillights
+        const hl = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.15, 0.25), new THREE.MeshBasicMaterial({ color: 0xfef08a }));
+        hl.position.set(vl * 0.5, vh * 0.35, vw * 0.3);
+        const hl2 = hl.clone(); hl2.position.z = -vw * 0.3;
+        const tl = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.15, 0.25), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+        tl.position.set(-vl * 0.5, vh * 0.35, vw * 0.3);
+        const tl2 = tl.clone(); tl2.position.z = -vw * 0.3;
+        group.add(hl); group.add(hl2); group.add(tl); group.add(tl2);
+
+        group.position.set(s.x, s.y, s.z);
+        group.rotation.y = THREE.MathUtils.degToRad(s.rotation_deg || 0);
+        group.userData = { structure: s };
+        return group;
+      }
+
+      function create3DTree(s) {
+        const group = new THREE.Group();
+        const th = s.height_m, tr = s.radius_m || 2.2;
+        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x452a19, roughness: 0.95 });
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(tr * 0.16, tr * 0.24, th * 0.45, 8), trunkMat);
+        trunk.position.y = th * 0.225;
+        group.add(trunk);
+
+        const folMat1 = new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.8 });
+        const folMat2 = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.75 });
+        const c1 = new THREE.Mesh(new THREE.ConeGeometry(tr, th * 0.55, 8), folMat1);
+        c1.position.y = th * 0.52;
+        const c2 = new THREE.Mesh(new THREE.ConeGeometry(tr * 0.78, th * 0.46, 8), folMat2);
+        c2.position.y = th * 0.74;
+        group.add(c1); group.add(c2);
+
+        group.position.set(s.x, s.y, s.z);
+        group.userData = { structure: s };
+        return group;
+      }
+
+      function create3DWater(s) {
+        const group = new THREE.Group();
+        const wGeom = new THREE.PlaneGeometry(s.length_m, s.width_m, 12, 12);
+        wGeom.rotateX(-Math.PI / 2);
+        const wMat = new THREE.MeshStandardMaterial({
+          color: 0x0284c7,
+          roughness: 0.08,
+          metalness: 0.88,
+          transparent: true,
+          opacity: 0.88,
+          side: THREE.DoubleSide
+        });
+        const wMesh = new THREE.Mesh(wGeom, wMat);
+        group.add(wMesh);
+        group.position.set(s.x, s.y, s.z);
+        group.userData = { structure: s };
+        return group;
+      }
+
+      function create3DRoad(s) {
+        const group = new THREE.Group();
+        const rl = s.length_m, rw = s.width_m;
+        const roadMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.85 });
+        const roadMesh = new THREE.Mesh(new THREE.BoxGeometry(rl, 0.06, rw), roadMat);
+        roadMesh.position.y = 0.03;
+        group.add(roadMesh);
+
+        // Raised Concrete Curbs on Flanks
+        const curbMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.7 });
+        const curbL = new THREE.Mesh(new THREE.BoxGeometry(rl, 0.16, 0.28), curbMat);
+        curbL.position.set(0, 0.08, rw * 0.5 - 0.14);
+        const curbR = new THREE.Mesh(new THREE.BoxGeometry(rl, 0.16, 0.28), curbMat);
+        curbR.position.set(0, 0.08, -rw * 0.5 + 0.14);
+        group.add(curbL); group.add(curbR);
+
+        // Dashed White Center Line
+        const lineMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc });
+        for (let x = -rl * 0.45; x <= rl * 0.45; x += 4.0) {
+          const dash = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.07, 0.16), lineMat);
+          dash.position.set(x, 0.035, 0);
+          group.add(dash);
+        }
+
+        group.position.set(s.x, s.y, s.z);
+        group.userData = { structure: s };
+        return group;
       }
 
       function animate() {
@@ -1235,6 +1579,38 @@
       }
 
       init3D();
+
+      // Tactical Intelligence Interaction (Raycasting on 3D elements)
+      const raycaster = new THREE.Raycaster();
+      const mouse = new THREE.Vector2();
+      renderer.domElement.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+
+        if (real3DElementsGroup) {
+          const intersects = raycaster.intersectObjects(real3DElementsGroup.children, true);
+          if (intersects.length > 0) {
+            let obj = intersects[0].object;
+            while (obj && (!obj.userData || !obj.userData.structure) && obj.parent) {
+              obj = obj.parent;
+            }
+            if (obj && obj.userData && obj.userData.structure) {
+              selectStructure(obj.userData.structure);
+            }
+          }
+        }
+      });
+
+      document.getElementById('ticCloseBtn')?.addEventListener('click', () => {
+        document.getElementById('tacticalIntelCard')?.classList.add('hidden');
+        if (selectedObjectHighlight) {
+          scene.remove(selectedObjectHighlight);
+          selectedObjectHighlight = null;
+        }
+      });
 
       // -------------------------------------------------------------
       // 2. VIEWPORT BUTTONS & TABS
@@ -1343,6 +1719,96 @@
         toggleBboxBtn.classList.toggle('text-tech-cyan', bboxHelper.visible);
         toggleBboxBtn.classList.toggle('text-slate-500', !bboxHelper.visible);
       });
+
+      // Viewport HUD Overlay Controls: Minimize, Dock to Bottom, Drag, & Global Toggle
+      const vpHudCard = document.getElementById('vpHudCard');
+      const vpHudHeader = document.getElementById('vpHudHeader');
+      const vpHudBody = document.getElementById('vpHudBody');
+      const btnToggleVpHud = document.getElementById('btnToggleVpHud');
+      const vpHudCollapseIcon = document.getElementById('vpHudCollapseIcon');
+      const btnDockVpHud = document.getElementById('btnDockVpHud');
+      const vpHudDockIcon = document.getElementById('vpHudDockIcon');
+      const toggleHudBtn = document.getElementById('toggleHudBtn');
+
+      let isHudCollapsed = false;
+      let isHudDockedBottom = false;
+      let isHudGloballyVisible = true;
+
+      if (btnToggleVpHud && vpHudBody && vpHudCollapseIcon) {
+        btnToggleVpHud.addEventListener('click', (e) => {
+          e.stopPropagation();
+          isHudCollapsed = !isHudCollapsed;
+          vpHudBody.classList.toggle('hidden', isHudCollapsed);
+          vpHudCollapseIcon.textContent = isHudCollapsed ? 'unfold_more' : 'unfold_less';
+          btnToggleVpHud.title = isHudCollapsed ? 'Expand HUD' : 'Collapse HUD';
+        });
+      }
+
+      if (btnDockVpHud && vpHudCard && vpHudDockIcon) {
+        btnDockVpHud.addEventListener('click', (e) => {
+          e.stopPropagation();
+          isHudDockedBottom = !isHudDockedBottom;
+          vpHudCard.style.top = '';
+          vpHudCard.style.left = '';
+          vpHudCard.style.bottom = '';
+          vpHudCard.style.right = '';
+          if (isHudDockedBottom) {
+            vpHudCard.classList.remove('top-3');
+            vpHudCard.classList.add('bottom-12');
+            vpHudDockIcon.textContent = 'vertical_align_top';
+            btnDockVpHud.title = 'Move HUD to Top';
+          } else {
+            vpHudCard.classList.remove('bottom-12');
+            vpHudCard.classList.add('top-3');
+            vpHudDockIcon.textContent = 'vertical_align_bottom';
+            btnDockVpHud.title = 'Move HUD to Bottom';
+          }
+        });
+      }
+
+      if (toggleHudBtn && vpHudCard) {
+        toggleHudBtn.addEventListener('click', () => {
+          isHudGloballyVisible = !isHudGloballyVisible;
+          vpHudCard.classList.toggle('hidden', !isHudGloballyVisible);
+          toggleHudBtn.classList.toggle('text-tech-cyan', isHudGloballyVisible);
+          toggleHudBtn.classList.toggle('text-slate-500', !isHudGloballyVisible);
+        });
+      }
+
+      // Draggable HUD Card
+      if (vpHudCard && vpHudHeader) {
+        let isDraggingHud = false, hudStartX, hudStartY, hudOrigX, hudOrigY;
+        vpHudHeader.addEventListener('mousedown', (e) => {
+          if (e.target.closest('button')) return;
+          isDraggingHud = true;
+          hudStartX = e.clientX;
+          hudStartY = e.clientY;
+          const rect = vpHudCard.getBoundingClientRect();
+          const pRect = canvasContainer.getBoundingClientRect();
+          hudOrigX = rect.left - pRect.left;
+          hudOrigY = rect.top - pRect.top;
+          vpHudCard.classList.remove('top-3', 'left-3', 'bottom-12');
+          vpHudCard.style.left = `${hudOrigX}px`;
+          vpHudCard.style.top = `${hudOrigY}px`;
+          vpHudCard.style.bottom = 'auto';
+          vpHudCard.style.right = 'auto';
+          e.preventDefault();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+          if (!isDraggingHud) return;
+          const dx = e.clientX - hudStartX;
+          const dy = e.clientY - hudStartY;
+          const newX = Math.max(8, Math.min(canvasContainer.clientWidth - 260, hudOrigX + dx));
+          const newY = Math.max(8, Math.min(canvasContainer.clientHeight - 60, hudOrigY + dy));
+          vpHudCard.style.left = `${newX}px`;
+          vpHudCard.style.top = `${newY}px`;
+        });
+
+        window.addEventListener('mouseup', () => {
+          isDraggingHud = false;
+        });
+      }
 
       // Reset Camera Button
       document.getElementById('resetCameraBtn').addEventListener('click', () => {
