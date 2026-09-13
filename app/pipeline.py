@@ -221,25 +221,35 @@ class ReconstructionPipeline:
         mid_idx = len(sample_imgs) // 2
         mid_kf = sample_imgs[mid_idx]
 
-        # 1. Computer Vision Horizon & Sky Detection:
-        # Measure row-wise texture energy from top downwards in the upper 45% of the frame
+        # 1. Multi-Modal Horizon & Sky Detection:
+        # Combines chromatic HSV analysis (blue sky, white clouds) with texture gradient
+        hsv_mid = cv2.cvtColor(mid_kf, cv2.COLOR_BGR2HSV)
         gray_mid = cv2.cvtColor(mid_kf, cv2.COLOR_BGR2GRAY)
+        search_max_y = int(h * 0.48)
+
+        top_hsv = hsv_mid[:search_max_y, :]
+        blue_sky = ((top_hsv[..., 0] >= 85) & (top_hsv[..., 0] <= 135) & (top_hsv[..., 1] >= 18)).astype(np.uint8)
+        clouds = ((top_hsv[..., 1] < 45) & (top_hsv[..., 2] >= 165)).astype(np.uint8)
+        sky_candidate_mask = cv2.bitwise_or(blue_sky, clouds)
+
+        # Row-wise fraction of sky pixels
+        sky_frac = np.mean(sky_candidate_mask, axis=1)
+        sky_frac_smooth = cv2.GaussianBlur(sky_frac.reshape(-1, 1), (1, 31), 0).flatten()
+
         gx = cv2.Sobel(gray_mid, cv2.CV_32F, 1, 0, ksize=3)
         gy = cv2.Sobel(gray_mid, cv2.CV_32F, 0, 1, ksize=3)
         grad_mid = np.sqrt(gx**2 + gy**2)
-
-        search_max_y = int(h * 0.45)
         row_grad = np.mean(grad_mid[:search_max_y, :], axis=1)
         row_grad_smooth = cv2.GaussianBlur(row_grad.reshape(-1, 1), (1, 31), 0).flatten()
 
-        min_top_grad = float(np.min(row_grad_smooth[:int(h * 0.25)]))
-        has_sky = (min_top_grad < 22.0)
+        top_sky_coverage = float(np.mean(sky_frac_smooth[:int(h * 0.22)]))
+        min_top_grad = float(np.min(row_grad_smooth[:int(h * 0.22)]))
+        has_sky = (top_sky_coverage > 0.30 or min_top_grad < 22.0)
 
         if has_sky:
-            sky_thresh = max(14.0, min_top_grad * 2.2)
-            sky_rows = np.where(row_grad_smooth < sky_thresh)[0]
+            sky_rows = np.where(sky_frac_smooth > 0.22)[0]
             if len(sky_rows) > 0:
-                y_horizon = int(sky_rows.max()) + 2
+                y_horizon = min(int(h * 0.48), int(sky_rows.max()) + 4)
             else:
                 y_horizon = int(np.argmax(np.gradient(row_grad_smooth)))
         else:
@@ -282,6 +292,13 @@ class ReconstructionPipeline:
 
         # Crop ground region only (remove sky)
         ground_parallax = smooth_elev[y_horizon:, :]
+
+        # Feather parallax smoothly to zero at the horizon boundary to prevent vertical cliff walls
+        if y_horizon > 0 and ground_parallax.shape[0] > 40:
+            feather_h = int(ground_parallax.shape[0] * 0.16)
+            feather_curve = np.linspace(0.0, 1.0, feather_h, dtype=np.float32).reshape(-1, 1)
+            ground_parallax[:feather_h, :] *= feather_curve
+
         p_min = float(ground_parallax.min())
         p_max = float(ground_parallax.max())
 
@@ -499,32 +516,9 @@ class ReconstructionPipeline:
         else:
             dense_norm = np.zeros((nz, nx), dtype=np.float32)
 
-        # Scale natural relief: if open sky / mountain oblique view, scale to 18m-28m; if overhead nadir, gentle relief
-        max_parallax = getattr(self, 'parallax_max', 2.0) if hasattr(self, 'parallax_max') else 2.0
-        if has_sky_view or max_parallax > 4.0:
-            elev_scale = 24.0
-        elif max_parallax > 2.5:
-            elev_scale = 8.0
-        else:
-            elev_scale = 0.0  # Flat planar datum for strictly overhead suburban / flat fields
-
-        height_grid = GROUND_BASE_H + dense_norm * elev_scale
-        classif_grid = np.full((nz, nx), 2, dtype=np.int32)  # ASPRS Class 2: Ground
-
-        # Smooth terrain to ensure natural organic slopes without single-cell spikes
-        if elev_scale > 0.0:
-            height_grid = cv2.bilateralFilter(height_grid.astype(np.float32), 7, 2.5, 2.5)
-            height_grid = cv2.GaussianBlur(height_grid, (5, 5), 0)
-
-        # Enforce planar water level on water bodies (ASPRS 9)
-        water_grid = cv2.resize(water_mask, (nx, nz), interpolation=cv2.INTER_NEAREST)
-        height_grid[water_grid > 0] = GROUND_BASE_H - 0.25  # Slight natural basin depression
-        classif_grid[water_grid > 0] = 9
-
-        detected_structures = []
-        yolo_detected_boxes = []
-
         # B. Real-Time Vehicle Detection via YOLOv8
+        yolo_detected_boxes = []
+        raw_vehicles = []
         try:
             from ultralytics import YOLO
             yolo = YOLO("yolov8n.pt")
@@ -547,10 +541,6 @@ class ReconstructionPipeline:
                 cz_m = round(float((cy_px / skirt_y - 0.5) * extent_m), 2)
                 w_m = round(float(bw_px / tex_size * extent_m), 1)
                 l_m = round(float(bl_px / skirt_y * extent_m), 1)
-
-                gx = int(np.clip((cx_m / extent_m + 0.5) * (nx - 1), 0, nx - 1))
-                gz = int(np.clip((cz_m / extent_m + 0.5) * (nz - 1), 0, nz - 1))
-                ground_y = float(height_grid[gz, gx])
 
                 if cname in ['car', 'truck', 'bus', 'van', 'motorcycle']:
                     v_count += 1
@@ -576,32 +566,20 @@ class ReconstructionPipeline:
                         icon = "two_wheeler"
 
                     rot_deg = 0.0 if bl_px >= bw_px else 90.0
-
-                    detected_structures.append({
-                        "id": f"VEH-{v_count:02d}",
-                        "type": s_type,
-                        "label": s_label,
-                        "category": "vehicle",
-                        "icon": icon,
-                        "x": cx_m,
-                        "y": round(ground_y, 2),
-                        "z": cz_m,
-                        "height_m": h_val,
-                        "length_m": phys_l,
-                        "width_m": phys_w,
-                        "rotation_deg": rot_deg,
-                        "area_m2": round(phys_l * phys_w, 1),
-                        "volume_m3": round(phys_l * phys_w * h_val, 1),
-                        "confidence": round(conf, 2),
-                        "display_metric": f"{phys_l}×{phys_w}m • H: {h_val}m",
-                        "asprs_class": 2
+                    raw_vehicles.append({
+                        "id": f"VEH-{v_count:02d}", "type": s_type, "label": s_label,
+                        "category": "vehicle", "icon": icon, "cx_m": cx_m, "cz_m": cz_m,
+                        "height_m": h_val, "length_m": phys_l, "width_m": phys_w,
+                        "rotation_deg": rot_deg, "confidence": round(conf, 2)
                     })
         except Exception as yolo_err:
             logger.warning(f"YOLO object extraction fallback: {yolo_err}")
 
-        # C. Candidate Building / Roof Segmentation with Geometric Rectangularity
-        warm_roof = ((r_ch.astype(int) > b_ch.astype(int) + 14) & (r_ch.astype(int) > g_ch.astype(int) + 6) & (r_ch > 60)).astype(np.uint8)
-        slate_roof = ((gray > 125) & (gray < 235) & (sat < 42) & (water_mask == 0)).astype(np.uint8)
+        # C. Candidate Building / Roof Segmentation
+        # Captures terracotta/warm tile roofs + slate/gray roofs + residential blocks
+        warm_roof = ((r_ch.astype(int) > b_ch.astype(int) + 12) & (r_ch.astype(int) > g_ch.astype(int) + 4) & (r_ch > 55)).astype(np.uint8)
+        water_mask_approx = ((sat < 35) & (gray < 85)).astype(np.uint8)
+        slate_roof = ((gray > 105) & (gray < 235) & (sat < 48) & (water_mask_approx == 0)).astype(np.uint8)
         roof_mask = cv2.bitwise_or(warm_roof, slate_roof)
         roof_mask = cv2.morphologyEx(roof_mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
         roof_mask = cv2.morphologyEx(roof_mask, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7)))
@@ -610,7 +588,7 @@ class ReconstructionPipeline:
         candidate_buildings = []
         for cnt in bld_contours:
             area_px = cv2.contourArea(cnt)
-            if 180 <= area_px <= 450000:
+            if 150 <= area_px <= 550000:
                 rect = cv2.minAreaRect(cnt)
                 (rcx, rcy), (bw, bh), angle = rect
                 rect_area = max(1.0, bw * bh)
@@ -620,16 +598,13 @@ class ReconstructionPipeline:
                 l_m = round(float(max(bw, bh) / skirt_y * extent_m), 1)
                 area_m2 = round(float(area_px / (tex_size * skirt_y) * (extent_m * extent_m)), 1)
 
-                # Require geometric rectangularity (>= 0.55) to avoid false positive terrain/dirt contours
-                if rectangularity >= 0.55 and w_m >= 3.5 and l_m >= 4.5 and area_m2 >= 18.0:
-                    # Check overlap with YOLO vehicles
+                if rectangularity >= 0.20 and w_m >= 2.0 and l_m >= 3.5 and area_m2 >= 8.0:
                     is_vehicle = False
                     for (vx1, vy1, vx2, vy2, vname) in yolo_detected_boxes:
                         if vx1 - 8 <= rcx <= vx2 + 8 and vy1 - 8 <= rcy <= vy2 + 8:
                             is_vehicle = True
                             break
                     if not is_vehicle:
-                        # Sample average roof color within contour
                         mask_c = np.zeros(ortho_enhanced.shape[:2], dtype=np.uint8)
                         cv2.drawContours(mask_c, [cnt], -1, 255, -1)
                         mean_c = cv2.mean(ortho_enhanced, mask=mask_c)[:3]
@@ -643,12 +618,63 @@ class ReconstructionPipeline:
 
         candidate_buildings.sort(key=lambda x: x['area_m2'], reverse=True)
 
-        # Environmental context check: Rural/Mountain vs Urban/Suburban
-        is_mountainous = (has_sky_view or elev_scale >= 15.0)
+        # Environmental Context & Topographic Scale:
+        # In suburban towns with housing/buildings (>= 3 houses), ground terrain is gentle/flat (2.5m relief)
+        # In alpine mountain valleys (few/zero houses), terrain scales into 22m natural ridges
+        is_suburban = (len(candidate_buildings) >= 3)
+        max_parallax = getattr(self, 'parallax_max', 2.0) if hasattr(self, 'parallax_max') else 2.0
+        if is_suburban:
+            elev_scale = 2.5
+        elif has_sky_view or max_parallax > 4.0:
+            elev_scale = 22.0
+        elif max_parallax > 2.5:
+            elev_scale = 6.0
+        else:
+            elev_scale = 0.0
+
+        height_grid = GROUND_BASE_H + dense_norm * elev_scale
+        classif_grid = np.full((nz, nx), 2, dtype=np.int32)  # ASPRS Class 2: Ground
+
+        # Smooth terrain to ensure natural organic slopes without single-cell spikes
+        if elev_scale > 0.0:
+            height_grid = cv2.bilateralFilter(height_grid.astype(np.float32), 7, 2.5, 2.5)
+            height_grid = cv2.GaussianBlur(height_grid, (5, 5), 0)
+
+        # Enforce planar water level on water bodies (ASPRS 9)
+        water_grid = cv2.resize(water_mask, (nx, nz), interpolation=cv2.INTER_NEAREST)
+        height_grid[water_grid > 0] = GROUND_BASE_H - 0.25  # Slight natural basin depression
+        classif_grid[water_grid > 0] = 9
+
+        detected_structures = []
+
+        # Register Vehicles
+        for v in raw_vehicles:
+            gx = int(np.clip((v['cx_m'] / extent_m + 0.5) * (nx - 1), 0, nx - 1))
+            gz = int(np.clip((v['cz_m'] / extent_m + 0.5) * (nz - 1), 0, nz - 1))
+            ground_y = float(height_grid[gz, gx])
+            detected_structures.append({
+                "id": v['id'],
+                "type": v['type'],
+                "label": v['label'],
+                "category": "vehicle",
+                "icon": v['icon'],
+                "x": v['cx_m'],
+                "y": round(ground_y, 2),
+                "z": v['cz_m'],
+                "height_m": v['height_m'],
+                "length_m": v['length_m'],
+                "width_m": v['width_m'],
+                "rotation_deg": v['rotation_deg'],
+                "area_m2": round(v['length_m'] * v['width_m'], 1),
+                "volume_m3": round(v['length_m'] * v['width_m'] * v['height_m'], 1),
+                "confidence": v['confidence'],
+                "display_metric": f"{v['length_m']}×{v['width_m']}m • H: {v['height_m']}m",
+                "asprs_class": 2
+            })
 
         # Register Real 3D Buildings
         b_count = 0
-        for b_info in candidate_buildings[:12]:
+        for b_info in candidate_buildings[:24]:
             cx_px, cy_px = b_info['cx'], b_info['cy']
             w_m, l_m, a_m2 = b_info['w_m'], b_info['l_m'], b_info['area_m2']
             cx_m = round(float((cx_px / tex_size - 0.5) * extent_m), 2)
@@ -658,27 +684,26 @@ class ReconstructionPipeline:
             ground_y = float(height_grid[gz, gx])
 
             b_count += 1
-            h_val = 5.2 if a_m2 > 70.0 else 4.2
-            wall_h = round(h_val * 0.62, 1)
+            h_val = 6.2 if a_m2 > 100.0 else (5.2 if a_m2 > 35.0 else 4.5)
+            wall_h = round(h_val * 0.65, 1)
 
-            if is_mountainous:
+            if not is_suburban and has_sky_view:
                 s_type = "Village Homestead / Cottage"
                 s_label = f"Homestead #{b_count}"
                 icon = "cottage"
             else:
-                if a_m2 > 110.0:
+                if a_m2 > 120.0:
+                    s_type = "Residential Housing Block"
+                    s_label = f"Housing Block #{b_count}"
+                elif a_m2 > 35.0:
                     s_type = "Residential House (Pitched Roof)"
                     s_label = f"House #{b_count}"
-                elif a_m2 > 40.0:
-                    s_type = "Detached Residence"
-                    s_label = f"Residence #{b_count}"
                 else:
-                    s_type = "Residential Structure"
+                    s_type = "Detached Residence"
                     s_label = f"Residence #{b_count}"
                 icon = "home"
 
             rot_deg = round(float(b_info['angle']), 1)
-            # Normalize rotation
             if l_m < w_m:
                 rot_deg += 90.0
 
@@ -1196,7 +1221,8 @@ class ReconstructionPipeline:
                     rot_mat = trimesh.transformations.rotation_matrix(b_rot, [0, 1, 0])
                     b_mesh.apply_transform(rot_mat)
                     b_mesh.apply_translation([bx, by, bz])
-                    b_mesh.visual.vertex_colors = np.array([[225, 218, 205, 255]] * 8 + [[180, 70, 50, 255]] * 2)
+                    # Color faces: 8 wall faces (cream stucco) + 6 roof faces (terracotta tile red)
+                    b_mesh.visual.face_colors = np.array([[232, 226, 218, 255]] * 8 + [[195, 75, 48, 255]] * 6, dtype=np.uint8)
                     scene.add_geometry(b_mesh, node_name=s['id'])
                     
                 elif cat == 'vehicle':
@@ -1352,12 +1378,31 @@ Connections: {{
             
             extent_m = 70.0
             transform = from_origin(500000, 5400000, extent_m / 512.0, extent_m / 512.0)
+            
+            # Map elevation to calibrated 16-bit GeoTIFF (photometric MINISBLACK)
+            # This ensures macOS Preview, Windows Photo Viewer, and QuickLook render the crisp topographical relief
+            # instead of blowing out to pure white, while preserving survey-grade precision in GIS software.
+            e_min, e_max = float(elev_resized.min()), float(elev_resized.max())
+            if e_max > e_min:
+                norm_u16 = ((elev_resized - e_min) / (e_max - e_min) * 65535.0).astype(np.uint16)
+            else:
+                norm_u16 = np.full((512, 512), 32768, dtype=np.uint16)
+                
+            scale_val = (e_max - e_min) / 65535.0 if e_max > e_min else 1.0
             with rasterio.open(
                 str(dsm_path), 'w', driver='GTiff', height=512, width=512, count=1,
-                dtype=rasterio.float32, crs='EPSG:32631', transform=transform
+                dtype=rasterio.uint16, crs='EPSG:32631', transform=transform,
+                photometric='MINISBLACK'
             ) as dst:
-                dst.write(elev_resized, 1)
-            logger.info(f"Exported DSM: {dsm_path} ({dsm_path.stat().st_size} bytes)")
+                dst.write(norm_u16, 1)
+                dst.update_tags(
+                    ELEVATION_MIN=str(round(e_min, 2)),
+                    ELEVATION_MAX=str(round(e_max, 2)),
+                    UNIT='meter',
+                    SCALE=str(scale_val),
+                    OFFSET=str(e_min)
+                )
+            logger.info(f"Exported Calibrated DSM GeoTIFF: {dsm_path} ({dsm_path.stat().st_size} bytes, range [{e_min:.1f}m - {e_max:.1f}m])")
         except Exception as e:
             logger.warning(f"DSM export fallback: {e}")
             with open(dsm_path, "wb") as f:
