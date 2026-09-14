@@ -159,7 +159,12 @@
           <span class="material-symbols-outlined text-tech-cyan text-[18px]">tune</span>
           <h2 class="font-semibold text-slate-100 text-xs tracking-wide uppercase">Pipeline Ingestion &amp; Controls</h2>
         </div>
-        <span class="font-mono text-[10px] text-slate-400 bg-app-bg px-2 py-0.5 rounded border border-app-border">SINGLE-PASS SfM</span>
+        <div class="flex items-center gap-1.5">
+          <button id="btnNewFlight" class="px-2 py-0.5 text-[10px] font-mono rounded bg-app-bg text-slate-400 hover:text-white hover:border-tech-cyan/50 border border-app-border transition-colors flex items-center gap-1 cursor-pointer" title="Reset and load a new drone video">
+            <span class="material-symbols-outlined text-[13px]">refresh</span> New Flight
+          </button>
+          <span class="font-mono text-[10px] text-slate-400 bg-app-bg px-2 py-0.5 rounded border border-app-border hidden sm:inline">SINGLE-PASS SfM</span>
+        </div>
       </div>
 
       <div class="p-3.5 flex flex-col gap-4">
@@ -2053,6 +2058,11 @@
 
       window.loadJobModel = loadJobById;
 
+
+      // New Flight reset button
+      document.getElementById('btnNewFlight')?.addEventListener('click', () => {
+        window.location.href = '/';
+      });
 
       // Auto-load only if explicit ?job_id= is in the URL
       async function autoLoadLatestJob() {
