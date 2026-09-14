@@ -577,7 +577,7 @@
           <div class="absolute top-3 right-3 bg-app-panel/90 backdrop-blur border border-app-border/80 rounded-lg p-3 font-mono text-[10px] text-slate-300 shadow-xl flex flex-col gap-1.5 pointer-events-auto select-none hidden sm:flex z-20">
             <div class="flex items-center justify-between gap-6 border-b border-app-border/60 pb-1.5">
               <span class="text-slate-300 font-semibold">Spatial Georeference</span>
-              <span class="text-tech-cyan">WGS 84 / UTM 31N</span>
+              <span id="vpSpatialCrs" class="text-tech-cyan">Local Metric</span>
             </div>
             <div class="grid grid-cols-2 gap-x-4 gap-y-1 pt-0.5 text-slate-400">
               <span>Survey Altitude (AGL):</span>
@@ -649,7 +649,7 @@
               <span id="metricGsd" class="font-mono text-lg font-bold text-slate-400">—</span>
               <span class="text-[10px] text-slate-400 font-mono">cm/px</span>
             </div>
-            <span class="text-[9px] text-slate-500 mt-1">Survey Grade Class A</span>
+            <span class="text-[9px] text-slate-500 mt-1">Camera Auto-Calibrated</span>
           </div>
 
           <div class="bg-app-bg p-3 rounded-lg border border-app-border flex flex-col">
@@ -662,12 +662,12 @@
           </div>
 
           <div class="bg-app-bg p-3 rounded-lg border border-app-border flex flex-col">
-            <span class="text-slate-400 text-[10px] font-mono uppercase">Dense 3D Splats</span>
+            <span class="text-slate-400 text-[10px] font-mono uppercase">Dense Point Cloud</span>
             <div class="flex items-baseline gap-1.5 mt-1">
               <span id="metricSplats" class="font-mono text-lg font-bold text-slate-400">—</span>
-              <span class="text-[10px] text-slate-400 font-mono">splats</span>
+              <span class="text-[10px] text-slate-400 font-mono">points</span>
             </div>
-            <span class="text-[9px] text-slate-500 mt-1">Gaussian Harmonics</span>
+            <span class="text-[9px] text-slate-500 mt-1">Multi-View Stereo Fusion</span>
           </div>
 
           <div class="bg-app-bg p-3 rounded-lg border border-app-border flex flex-col col-span-2 md:col-span-1">
@@ -844,69 +844,10 @@
         window.addEventListener('resize', onWindowResize);
       }
 
-      // Spawns sparse keypoints dynamically during reconstruction
+      // Dynamic progress update during reconstruction
       function spawnDynamicSparsePoints(progressPct) {
-        if (!scene) return;
-        
-        const count = Math.floor(progressPct * 180); // up to 18,000 points
-        if (pointCloudMesh) {
-          scene.remove(pointCloudMesh);
-        }
-
-        const geometry = new THREE.BufferGeometry();
-        const positions = new Float32Array(count * 3);
-        const colors = new Float32Array(count * 3);
-
-        const colorCyan = new THREE.Color(0x38bdf8);
-        const colorSky = new THREE.Color(0x0ea5e9);
-        const colorViolet = new THREE.Color(0x8b5cf6);
-        const colorGreen = new THREE.Color(0x10b981);
-
-        for (let i = 0; i < count; i++) {
-          const u = Math.random();
-          let x, y, z;
-          
-          if (u < 0.65) {
-            const block = Math.floor(Math.random() * 4);
-            const bx = (block % 2 === 0 ? -12 : 12) + (Math.random() - 0.5) * 14;
-            const bz = (block < 2 ? -12 : 12) + (Math.random() - 0.5) * 14;
-            const height = 6 + Math.random() * 20;
-            x = bx;
-            y = Math.random() * height;
-            z = bz;
-          } else {
-            x = (Math.random() - 0.5) * 65;
-            z = (Math.random() - 0.5) * 65;
-            y = Math.sin(x * 0.08) * Math.cos(z * 0.08) * 3 + Math.random() * 0.5;
-          }
-
-          positions[i * 3] = x;
-          positions[i * 3 + 1] = y;
-          positions[i * 3 + 2] = z;
-
-          let c = colorCyan;
-          if (y > 16) c = colorViolet;
-          else if (y > 6) c = colorSky;
-          else if (y < 2) c = colorGreen;
-
-          colors[i * 3] = c.r;
-          colors[i * 3 + 1] = c.g;
-          colors[i * 3 + 2] = c.b;
-        }
-
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-        const pMaterial = new THREE.PointsMaterial({
-          size: 0.85,
-          vertexColors: true,
-          transparent: true,
-          opacity: 0.85,
-          blending: THREE.AdditiveBlending
-        });
-
-        pointCloudMesh = new THREE.Points(geometry, pMaterial);
-        scene.add(pointCloudMesh);
+        // Do not fabricate fake points; wait for real SfM points from backend
+        return;
       }
 
       function fitCameraToScene() {
@@ -1759,7 +1700,7 @@
             if (videoFileSpecs) videoFileSpecs.textContent = `${w}×${h} • ${formatTime(dur)} • ${formatBytes(file.size)}`;
 
             const elAlt = document.getElementById('vpAltitude');
-            if (elAlt) elAlt.textContent = '120.0 m (GPS Lock)';
+            if (elAlt) elAlt.textContent = 'Calculating...';
             const elStatus = document.getElementById('vpSurveyStatus');
             if (elStatus) elStatus.textContent = 'Video Ingested';
           };
@@ -1985,7 +1926,7 @@
         headerStatusText.textContent = '3D Model Reconstructed';
         headerStatusBadge.className = 'flex items-center gap-1.5 text-emerald-400';
 
-        document.getElementById('vpQualityBadge').textContent = 'Survey Grade';
+        document.getElementById('vpQualityBadge').textContent = 'Metric Calibrated';
         document.getElementById('vpQualityBadge').className = 'text-emerald-400 font-semibold bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-500/40';
         document.getElementById('vpSurveyStatus').textContent = 'Reconstruction Complete';
         document.getElementById('vpLiveStatusIndicator').textContent = '● Photogrammetric 3D Active';
@@ -2005,18 +1946,37 @@
               document.getElementById('vpBundleError').textContent = `${m.reprojection_error_px} px`;
             }
             if (m.gsd_cm_px) {
-              metricGsd.textContent = m.gsd_cm_px;
-              document.getElementById('vpGsd').textContent = `${m.gsd_cm_px} cm/px`;
+              const gsdDisplay = typeof m.gsd_cm_px === 'number' ? m.gsd_cm_px.toFixed(2) : m.gsd_cm_px;
+              metricGsd.textContent = gsdDisplay;
+              document.getElementById('vpGsd').textContent = `${gsdDisplay} cm/px`;
             }
             if (m.sparse_points) {
               metricPoints.textContent = m.sparse_points.toLocaleString();
               document.getElementById('vpPoints').textContent = `${m.sparse_points.toLocaleString()} pts`;
             }
-            if (m.dense_splats) metricSplats.textContent = (m.dense_splats / 1e6).toFixed(1) + 'M';
-            if (m.volume_m3) metricVolume.textContent = m.volume_m3.toLocaleString();
-            if (m.bounding_box && m.bounding_box.dimensions_m) {
-              const d = m.bounding_box.dimensions_m;
-              metricExtent.textContent = `Extent: ${d[0]}m × ${d[1]}m × ${d[2]}m`;
+            const dPts = m.dense_points || m.dense_splats;
+            if (dPts) {
+              metricSplats.textContent = dPts.toLocaleString();
+            }
+            if (m.volume_m3) metricVolume.textContent = Number(m.volume_m3).toLocaleString();
+            if (m.bounding_box) {
+              const d = m.bounding_box.dimensions || m.bounding_box.dimensions_m;
+              if (d) {
+                metricExtent.textContent = `Extent: ${d[0]}m × ${d[1]}m × ${d[2]}m`;
+                const elAlt = document.getElementById('vpAltitude');
+                if (elAlt) elAlt.textContent = `${d[1]} m (Scene Height)`;
+              }
+            }
+            if (m.crs) {
+              const elCrs = document.getElementById('vpSpatialCrs');
+              if (elCrs) elCrs.textContent = m.crs;
+            }
+            if (m.reprojection_error_px !== undefined && m.reprojection_error_px !== null) {
+              const elErr = document.getElementById('vpBundleError');
+              if (elErr) elErr.textContent = `${Number(m.reprojection_error_px).toFixed(2)} px`;
+            }
+            if (m.compliance_status) {
+              document.getElementById('vpQualityBadge').textContent = m.compliance_status.includes('UTM') ? 'UTM Georeferenced' : 'Local Metric';
             }
           }
         } catch (e) {

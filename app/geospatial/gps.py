@@ -312,9 +312,30 @@ class GPSExtractor:
                 except Exception as e:
                     logger.warning(f"Failed parsing companion telemetry {cand.name}: {e}")
 
+        # 2. If no companion file, attempt to extract embedded subtitle stream (common in DJI drones)
+        if not raw_telemetry and v_path.exists():
+            try:
+                import subprocess
+                temp_srt = v_dir / f"{stem}_extracted_stream.srt"
+                # Try extracting subtitle stream 0:s:0
+                cmd = [
+                    "ffmpeg", "-y", "-v", "error",
+                    "-i", str(v_path),
+                    "-map", "0:s:0",
+                    str(temp_srt)
+                ]
+                res = subprocess.run(cmd, capture_output=True, timeout=10)
+                if res.returncode == 0 and temp_srt.exists() and temp_srt.stat().st_size > 0:
+                    raw_telemetry = self.parse_srt(temp_srt)
+                    logger.info(f"Extracted {len(raw_telemetry)} GPS telemetry points from embedded MP4 subtitle stream.")
+                if temp_srt.exists():
+                    temp_srt.unlink(missing_ok=True)
+            except Exception as e:
+                logger.debug(f"No embedded subtitle stream extracted: {e}")
+
         num_frames = len(frame_paths)
         if num_frames == 0:
-            return {}
+            return None
 
         gps_dict: Dict[Path, Tuple[float, float, float]] = {}
         target_times = [float((i / max(1, num_frames - 1)) * duration_sec) for i in range(num_frames)]
@@ -326,26 +347,8 @@ class GPSExtractor:
                 if i < len(interp_pts):
                     pt = interp_pts[i]
                     gps_dict[pth] = (pt.lat, pt.lon, pt.alt)
+            logger.info(f"Successfully associated real GPS telemetry with {len(gps_dict)} frames.")
+            return gps_dict
         else:
-            # Generate consistent drone flight baseline (origin datum ~37.7749, -122.4194, 45.0m AGL)
-            # Default forward flight speed 2.5 m/s
-            base_lat = 37.774900
-            base_lon = -122.419400
-            base_alt = 45.0
-            
-            # 1 degree latitude ~ 111,139 meters
-            m_per_deg_lat = 111139.0
-            m_per_deg_lon = 111139.0 * np.cos(np.radians(base_lat))
-            
-            flight_speed = 2.5 # m/s
-            for i, pth in enumerate(frame_paths):
-                t = target_times[i]
-                disp_m = t * flight_speed
-                d_lat = disp_m / m_per_deg_lat
-                d_lon = (disp_m * 0.15) / m_per_deg_lon # slight cross-track drift
-                d_alt = base_alt + np.sin(t * 0.2) * 0.4 # slight vertical breathing
-                gps_dict[pth] = (base_lat + d_lat, base_lon + d_lon, d_alt)
-                
-            logger.info(f"Populated metric flight trajectory baseline for {len(gps_dict)} frames ({flight_speed} m/s, {duration_sec:.1f}s)")
-
-        return gps_dict
+            logger.info("No GPS telemetry found in video streams or companion files. Operating in strictly LOCAL metric coordinates.")
+            return None

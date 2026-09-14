@@ -163,6 +163,8 @@ async def start_reconstruction(
         skip_georeferencing=opts.skip_georeferencing,
         skip_analysis=opts.skip_analysis
     )
+    if opts.target_fps and opts.target_fps > 0:
+        config.video.target_fps = float(opts.target_fps)
     
     background_tasks.add_task(run_pipeline_task, job_id, config)
     logger.info(f"Queued reconstruction background task for job {job_id}")
@@ -280,23 +282,8 @@ async def get_measurements(job_id: str):
     if meas_file.exists():
         with open(meas_file, "r") as f:
             return json.load(f)
-            
-    return {
-        "ntro_problem_statement": "PS-17: Single-Pass Drone Video to Accurate 3D Model Generation System",
-        "spatial_accuracy_m": 0.38,
-        "target_spatial_accuracy_m": 1.0,
-        "compliance_status": "SURVEY_GRADE_PASSED",
-        "volume_m3": 18450.0, 
-        "surface_area_m2": 5200.0,
-        "reprojection_error_px": 0.41,
-        "gsd_cm_px": 1.12,
-        "sparse_points": 42722,
-        "dense_splats": 341776,
-        "mesh_vertices": 14400,
-        "mesh_triangles": 28322,
-        "buildings_detected": 3,
-        "detected_structures": []
-    }
+
+    raise HTTPException(status_code=404, detail="Measurements not found for this job. Awaiting reconstruction.")
 
 @router.get("/latest")
 async def get_latest_job():

@@ -100,10 +100,11 @@ class DynamicObjectMasker:
                 self._apply_boxes_to_mask(mask, boxes)
             
         # Save masks matching COLMAP naming conventions
-        # COLMAP looks for <image_name>.png in mask_path
+        # In COLMAP, pixel > 0 is the VALID region to extract features from, and 0 is IGNORED/masked.
+        colmap_mask = cv2.bitwise_not(mask)
         mask_path = output_dir / f"{image_path.name}.png"
-        cv2.imwrite(str(mask_path), mask)
-        # Also save legacy stem mask
+        cv2.imwrite(str(mask_path), colmap_mask)
+        # Also save legacy stem mask where 255 = dynamic object (for MVS depth zeroing)
         cv2.imwrite(str(output_dir / f"{image_path.stem}_mask.png"), mask)
         return mask_path
 

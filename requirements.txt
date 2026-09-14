@@ -2,36 +2,33 @@
 torch
 torchvision
 numpy
+scipy
 opencv-python
 Pillow
 tqdm
 pydantic
 
-# Detection & Segmentation
+# Detection & Dynamic Segmentation
 ultralytics
-transformers
 
-# Feature Matching
+# Feature Matching & SfM
+pycolmap
 lightglue @ git+https://github.com/cvg/LightGlue.git
 kornia
 
-# Structure-from-Motion
-pycolmap
-glomap
-
 # 3D Reconstruction & Meshing
-# open3d — install from GitHub: pip install https://github.com/isl-org/Open3D/releases/download/v0.19.0/open3d-0.19.0-cp312-cp312-macosx_10_15_universal2.whl
+open3d
 trimesh
 pymeshlab
 
-# Geospatial
+# Geospatial & Metrology
 laspy
 pyproj
 rasterio
+fpdf2
 
-# API
+# API & Server
 fastapi
 uvicorn[standard]
-
-# Utilities
-pyyaml
+python-multipart
+PyYAML

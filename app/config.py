@@ -6,7 +6,7 @@ import torch
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ class VideoConfig:
 @dataclass
 class QualityConfig:
     """Frame quality filtering settings."""
-    blur_threshold: float = 100.0      # Laplacian variance threshold
+    blur_threshold: float = 80.0       # Laplacian variance threshold
     min_brightness: float = 30.0       # Minimum mean brightness (0-255)
     max_brightness: float = 240.0      # Maximum mean brightness (0-255)
 
@@ -72,61 +72,56 @@ class QualityConfig:
 @dataclass
 class KeyframeConfig:
     """Keyframe selection settings."""
-    min_gps_distance: float = 2.0      # Minimum GPS displacement (meters)
-    min_optical_flow: float = 15.0     # Minimum mean optical flow magnitude
-    max_frames: int = 300              # Maximum keyframes to select
+    min_gps_distance: float = 1.5      # Minimum GPS displacement in meters (if telemetry available)
+    min_optical_flow: float = 12.0     # Minimum mean optical flow magnitude for motion change
+    max_frames: int = 150              # Maximum keyframes to select for SfM
 
 
 @dataclass
 class DynamicMaskConfig:
     """Dynamic object masking settings."""
-    yolo_model: str = "yolov8n-seg.pt"     # YOLO instance segmentation model (or yolov8n.pt)
+    yolo_model: str = "yolov8n-seg.pt"     # YOLO instance segmentation model
     confidence: float = 0.25               # Detection confidence threshold
     target_classes: list = field(default_factory=lambda: [0, 2, 5, 7, 8])
     # COCO IDs: 0=person, 2=car, 5=bus, 7=truck, 8=boat
-    use_sam: bool = False                  # Use Segment Anything Model (SAM) for boundary refinement if available
-    sam_model: str = "facebook/sam-vit-base" # SAM model checkpoint name
-    use_sam2: bool = False                 # Deprecated alias for backward compatibility (maps to use_sam)
+    use_sam: bool = False                  # Optional SAM refinement flag
 
 
 @dataclass
 class SfMConfig:
     """Structure-from-Motion settings."""
-    feature_type: str = "sift"             # "sift", "aliked", or "superpoint"
-    camera_model: str = "SIMPLE_RADIAL"    # pycolmap camera model (SIMPLE_RADIAL, PINHOLE, OPENCV)
-    max_keypoints: int = 4096              # Max features per image
-    match_window: int = 8                  # Sequential matching window size
-    mapper: str = "colmap"                 # "colmap" or "glomap"
-    use_gpu: bool = True                   # Use GPU for matching
-    gps_prior_weight: float = 1.0          # GPS prior strength in BA
+    feature_type: str = "sift"             # SIFT feature extraction
+    camera_model: str = "SIMPLE_RADIAL"    # pycolmap auto-calibrated camera model
+    camera_mode: str = "SINGLE"            # Single camera shared across all drone video frames
+    max_keypoints: int = 4096              # Max SIFT features per image
+    match_window: int = 8                  # Sequential matching overlap window size
 
 
 @dataclass
 class ReconstructionConfig:
-    """Dense reconstruction settings."""
-    method: str = "depth_fusion"       # "depth_fusion" or "openmvs"
-    depth_model: str = "depth-anything/Depth-Anything-V2-Small-hf"
-    voxel_size: float = 0.02           # TSDF voxel size (meters)
-    depth_trunc: float = 50.0          # Maximum depth (meters)
-    sdf_trunc: float = 0.1             # SDF truncation distance (meters)
+    """Dense multi-view stereo reconstruction settings."""
+    method: str = "mvs_depth_fusion"       # "openmvs" or "mvs_depth_fusion"
+    stereo_num_disparities: int = 64       # SGBM disparity range (must be multiple of 16)
+    stereo_block_size: int = 7             # SGBM block size
+    voxel_size: float = 0.12               # Open3D voxel downsampling size (meters)
+    outlier_nb_neighbors: int = 20         # Statistical outlier removal neighbor count
+    outlier_std_ratio: float = 2.0         # Statistical outlier removal std ratio
 
 
 @dataclass
 class MeshConfig:
-    """Meshing settings."""
-    method: str = "poisson"            # "poisson" or "tsdf"
-    poisson_depth: int = 11            # Poisson octree depth
-    target_faces: int = 500_000        # Target face count for decimation
-    smooth_iterations: int = 3         # Laplacian smoothing iterations
-    texture_resolution: int = 4096     # Texture atlas resolution
+    """Meshing and texturing settings."""
+    method: str = "poisson"            # Poisson surface reconstruction
+    poisson_depth: int = 9             # Poisson octree depth
+    density_trim_quantile: float = 0.05# Trim unobserved low-density vertices
+    texture_resolution: int = 2048     # Texture resolution for UV map
 
 
 @dataclass
 class GeoConfig:
     """Georeferencing settings."""
-    crs: str = "auto"                  # "auto" (detect from GPS) or EPSG code
-    use_gps_priors: bool = True        # Use GPS for alignment
-    altitude_mode: str = "relative"    # "relative" or "absolute"
+    crs: str = "auto"                  # Detect UTM zone from GPS coordinates if present
+    use_gps_priors: bool = True        # Use GPS for alignment if telemetry available
 
 
 @dataclass

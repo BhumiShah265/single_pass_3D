@@ -1,52 +1,46 @@
 # AeroSynth 3D: Single-Pass Drone Video to Accurate 3D Model Generation System
 
-[![NTRO Problem Statement 17](https://img.shields.io/badge/NTRO-Problem%20Statement%2017-blue.svg)](https://sih.gov.in)
-[![SIH 2026](https://img.shields.io/badge/Smart%20India%20Hackathon-2026-orange.svg)](https://sih.gov.in)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-brightgreen.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688.svg)](https://fastapi.tiangolo.com/)
 [![Three.js WebGL](https://img.shields.io/badge/Three.js-r128-black.svg)](https://threejs.org/)
-[![ASPRS LAS 1.4](https://img.shields.io/badge/ASPRS-LAS%201.4%20LiDAR-blueviolet.svg)](https://www.asprs.org/)
-[![Spatial Accuracy](https://img.shields.io/badge/Spatial%20Accuracy-%E2%89%A4%200.38m%20(Survey%20Grade)-success.svg)](#performance-benchmarks)
+[![pycolmap](https://img.shields.io/badge/SfM-pycolmap%204.2-blue.svg)](https://github.com/colmap/pycolmap)
+[![ASPRS LAS 1.4](https://img.shields.io/badge/ASPRS-LAS%201.4%20Point%20Cloud-blueviolet.svg)](https://www.asprs.org/)
 
-> **Official NTRO Problem Statement 17 Solution**  
-> An AI-powered, georeferenced photogrammetry system that transforms monocular drone video (1080p / 4K) captured during a **single flight pass** into metric, survey-grade 3D models, classified point clouds, and geospatial deliverables within minutes.
+> **Single-Pass Photogrammetric 3D Reconstruction System**  
+> A multi-view photogrammetry and computer vision system that transforms raw drone video captured during a **single flight pass** into metric 3D surface models, dense multi-view point clouds, and GIS deliverables.
 
 ---
 
 ## 📌 Executive Summary
 
-Traditional aerial photogrammetry demands extensive cross-hatched grid flights, high image overlap ($> 70\%$), multi-angle passes, and days of post-processing. In operational military reconnaissance, emergency disaster assessment, and tactical reconnaissance, there is frequently **only a single opportunity** to capture a continuous video stream along a linear flight trajectory.
+Traditional aerial photogrammetry demands extensive cross-hatched grid flights, high image overlap ($> 70\%$), multi-angle passes, and days of post-processing. In operational reconnaissance, emergency disaster assessment, and linear surveys, there is frequently **only a single opportunity** to capture a continuous video stream along a linear flight pass.
 
-**AeroSynth 3D** solves this challenge by implementing a 10-stage end-to-end neural photogrammetry pipeline that processes raw single-pass UAV video, filters transient objects, calculates sparse Structure-from-Motion (SfM), builds a topological elevation mesh with seamless $2048 \times 2048$ composite texture synthesis, and produces **all 8 standardized GIS/3D formats** with sub-meter accuracy ($\le 0.38\,\text{m}$ achieved vs. $\le 1.0\,\text{m}$ target).
-
----
-
-## 🚀 Key Features
-
-* **🎥 Single-Pass Video Ingestion**: Supports standard MP4/MOV footage from consumer and tactical drones (DJI, Autel, custom UAVs) in 1080p and 4K resolutions.
-* **🖼️ Sketchfab-Grade Photorealistic 3D Texturing**: Generates seamless high-resolution aerial composite texture maps ($2048 \times 2048$) enhanced with adaptive CLAHE and unsharp masking, mapped to a dense 120×120 ($14,400$ vertices, $28,322$ triangles) architectural surface mesh with 1-to-1 UV mapping.
-* **🎯 Sub-Meter Survey Accuracy**: Meets and exceeds the NTRO requirement ($\le 1.0\,\text{m}$) by achieving $\le 0.38\,\text{m}$ metric spatial accuracy through bundle adjustment optimization and GPS/barometer telemetry fusion.
-* **🚗 Dynamic Object Filtering (YOLOv8)**: Automatically masks transient vehicles, pedestrians, and animals between frames to eliminate ghosting artifacts and geometric distortion.
-* **🏷️ ASPRS Semantic Classification & 3D Structure Badges**: Identifies and color-codes Ground (Class 2), Vegetation (Class 5), Buildings (Class 6), and Roads (Class 11), overlaying dynamic 3D floating callout badges with real-time height ($\text{m}$) and footprint area ($\text{m}^2$).
-* **📏 Interactive WebGL Metrology Studio**: Zero-install, browser-based Three.js 3D viewer featuring OrbitControls, multi-spectral shader toggles (*Drone Photo 3D*, *AI Semantic*, *Elevation DSM*, *LiDAR Cloud*, *Wireframe*), and an interactive raycasting ruler for point-to-point distance measurement.
-* **📦 All 8 Mandated Deliverables**: One-click verification and download for all standard deliverables without empty files or missing dependencies.
+**AeroSynth 3D** solves this challenge by implementing a 10-stage end-to-end multi-view photogrammetry pipeline:
+1. **Video Ingestion**: Ingests drone video at configured extraction FPS.
+2. **Quality Filtering**: Evaluates Laplacian variance focus and exposure thresholds.
+3. **Keyframe Selection**: Analyzes motion baseline and companion telemetry displacement.
+4. **Dynamic Masking**: Masks transient moving vehicles and pedestrians with YOLOv8 instance segmentation.
+5. **Structure from Motion (SfM)**: Computes camera auto-calibration, sequential matching, and bundle adjustment via `pycolmap`.
+6. **Dense Multi-View Stereo (MVS)**: Triangulates dense 3D points directly from calibrated camera views and baseline geometry with outlier removal.
+7. **Poisson Surface Meshing & Texturing**: Reconstructs a continuous surface mesh and projects original camera imagery onto mesh surfaces.
+8. **Georeferencing**: Applies Umeyama 7-parameter similarity transformation when companion telemetry is available, or retains exact local metric coordinates.
+9. **Semantic Annotation & Metrology**: Projects 2D detections onto reconstructed 3D points and computes physical building heights and true GSD.
+10. **8 Standardized Deliverables**: Generates OBJ, PLY, LAS, GLB, FBX, GeoTIFF Orthomosaic, DSM, and PDF reports directly from the reconstructed geometry.
 
 ---
 
 ## 📦 Verified Deliverables (8 Formats)
 
-Every deliverable is verified, non-empty, and compliant with international industry standards:
-
-| Format | Output File | Typical Size | Standards & Specification |
-| :--- | :--- | :--- | :--- |
-| **GLB** | `model.glb` | $\approx 1.0\,\text{MB}$ | Binary glTF 2.0 with embedded $2048 \times 2048$ PBR texture and normal vectors |
-| **OBJ** | `model.obj` + `model.mtl` | $\approx 1.9\,\text{MB}$ | Wavefront OBJ mesh with UV coordinates referencing aerial `texture.jpg` |
-| **PLY** | `cloud.ply` | $\approx 1.3\,\text{MB}$ | Stanford PLY ASCII point cloud ($42,722+$ points) with RGB colors & ASPRS classes |
-| **LAS** | `cloud.las` | $\approx 1.5\,\text{MB}$ | ASPRS LAS 1.4 LiDAR with 16-bit RGB, intensity channels, and standard class codes |
-| **FBX** | `model.fbx` | $\approx 1.0\,\text{MB}$ | Autodesk FBX 7.4 with direct vertex UV layer and material bindings |
-| **GeoTIFF** | `ortho.tif` | $\approx 12.6\,\text{MB}$ | 3-band RGB Orthomosaic with EPSG:32631 (WGS 84 / UTM Zone 31N) georeferencing |
-| **DSM** | `dsm.tif` | $\approx 1.1\,\text{MB}$ | 1-band 32-bit float Digital Surface Model GeoTIFF for elevation/hydrology analysis |
-| **PDF Report** | `report.pdf` | $\approx 0.9\,\text{MB}$ | Official NTRO survey report with compliance tables, GSD, and orthophoto map |
+| Format | Output File | Standards & Specification |
+| :--- | :--- | :--- |
+| **GLB** | `model.glb` | Binary glTF 2.0 with embedded texture and normal vectors |
+| **OBJ** | `model.obj` + `model.mtl` | Wavefront OBJ surface mesh referencing projected camera `texture.jpg` |
+| **PLY** | `cloud.ply` | Stanford PLY point cloud with RGB colors and ASPRS semantic classes |
+| **LAS** | `cloud.las` | ASPRS LAS 1.4 Point Cloud with RGB and standard class codes |
+| **FBX** | `model.fbx` | Autodesk FBX 7.4 with direct vertex UV layer and material bindings |
+| **GeoTIFF** | `ortho.tif` | 3-band RGB Orthomosaic projected from calibrated camera views |
+| **DSM** | `dsm.tif` | Digital Surface Model GeoTIFF rasterized from 3D surface elevations |
+| **PDF Report** | `report.pdf` | Metrology report with reprojection error, true GSD, and feature table |
 
 ---
 
