@@ -26,21 +26,25 @@ class DynamicObjectMasker:
         self.sam_processor = None
         self.sam_model = None
         
-        if config.use_sam2:
+        # Check use_sam or backward-compatibility use_sam2
+        use_sam_flag = getattr(config, "use_sam", False) or getattr(config, "use_sam2", False)
+        if use_sam_flag:
+            sam_model_name = getattr(config, "sam_model", "facebook/sam-vit-base")
             try:
                 from transformers import SamModel, SamProcessor
-                logger.info("Loading SAM model for mask refinement via transformers...")
-                self.sam_processor = SamProcessor.from_pretrained("facebook/sam-vit-base")
-                self.sam_model = SamModel.from_pretrained("facebook/sam-vit-base").to(self.device)
+                logger.info(f"Loading SAM model ({sam_model_name}) for fine mask boundary refinement...")
+                self.sam_processor = SamProcessor.from_pretrained(sam_model_name)
+                self.sam_model = SamModel.from_pretrained(sam_model_name).to(self.device)
                 self.use_sam = True
             except ImportError:
-                logger.warning("transformers not installed. Falling back to bounding box masks.")
+                logger.info("transformers not installed. Using YOLOv8 native instance segmentation / bounding masks.")
             except Exception as e:
-                logger.warning(f"Could not load SAM model: {e}. Falling back to bounding box masks.")
+                logger.warning(f"Could not load SAM model '{sam_model_name}': {e}. Using YOLOv8 masks.")
 
     def process_frame(self, image_path: Path, output_dir: Path) -> Optional[Path]:
         """
         Process a single frame to generate a dynamic object mask.
+        Supports native YOLOv8 instance segmentation masks, SAM refinement, or bounding boxes.
         
         Args:
             image_path: Path to the input frame.
@@ -54,7 +58,7 @@ class DynamicObjectMasker:
             logger.error(f"Failed to load {image_path} for dynamic masking.")
             return None
             
-        # Initialize binary mask (0 = static, 255 = dynamic)
+        # Initialize binary mask (0 = static background, 255 = dynamic object)
         h, w = img.shape[:2]
         mask = np.zeros((h, w), dtype=np.uint8)
         
@@ -62,39 +66,45 @@ class DynamicObjectMasker:
         results = self.yolo(img, verbose=False, conf=self.config.confidence, classes=self.config.target_classes)
         
         boxes = []
+        has_seg_masks = False
+
         for r in results:
-            boxes_data = r.boxes.xyxy.cpu().numpy()
-            if len(boxes_data) > 0:
-                boxes.extend(boxes_data.tolist())
+            # 1. Native YOLOv8 instance segmentation masks if available
+            if hasattr(r, 'masks') and r.masks is not None and len(r.masks) > 0:
+                has_seg_masks = True
+                seg_masks = r.masks.data.cpu().numpy() # (N, H_mask, W_mask)
+                for sm in seg_masks:
+                    sm_resized = cv2.resize((sm > 0.5).astype(np.uint8) * 255, (w, h), interpolation=cv2.INTER_NEAREST)
+                    mask = cv2.bitwise_or(mask, sm_resized)
+
+            if hasattr(r, 'boxes') and r.boxes is not None:
+                boxes_data = r.boxes.xyxy.cpu().numpy()
+                if len(boxes_data) > 0:
+                    boxes.extend(boxes_data.tolist())
                 
-        if len(boxes) > 0:
+        if len(boxes) > 0 and not has_seg_masks:
             if self.use_sam:
                 try:
-                    # Convert BGR to RGB for SAM
                     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     inputs = self.sam_processor(img_rgb, input_boxes=[boxes], return_tensors="pt").to(self.device)
-                    
                     with torch.no_grad():
                         outputs = self.sam_model(**inputs)
-                    
-                    # Extract masks from SAM output (batch, num_boxes, 3, H, W) usually
-                    # Taking the highest score mask (index 0 for each box usually)
                     pred_masks = outputs.pred_masks.squeeze(1).cpu().numpy()
-                    
-                    # pred_masks is usually (1, num_boxes, 3, H, W). We take the best mask per box.
                     for box_idx in range(pred_masks.shape[1]):
-                        # Best mask is usually index 0 in the 3 returned by SAM
                         m = pred_masks[0, box_idx, 0, :, :]
                         mask[m > 0.0] = 255
-                        
                 except Exception as e:
-                    logger.error(f"SAM refinement failed: {e}. Using bounding boxes.")
+                    logger.debug(f"SAM refinement fallback to bounding boxes: {e}")
                     self._apply_boxes_to_mask(mask, boxes)
             else:
                 self._apply_boxes_to_mask(mask, boxes)
             
-        mask_path = output_dir / f"{image_path.stem}_mask.png"
+        # Save masks matching COLMAP naming conventions
+        # COLMAP looks for <image_name>.png in mask_path
+        mask_path = output_dir / f"{image_path.name}.png"
         cv2.imwrite(str(mask_path), mask)
+        # Also save legacy stem mask
+        cv2.imwrite(str(output_dir / f"{image_path.stem}_mask.png"), mask)
         return mask_path
 
     def _apply_boxes_to_mask(self, mask: np.ndarray, boxes: List[List[float]]):

@@ -236,22 +236,6 @@
 
           </div>
 
-          <!-- Quick-Load Survey Datasets -->
-          <div class="flex flex-col gap-1.5 pt-1">
-            <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-              <span>Quick-Load Survey Datasets:</span>
-            </div>
-            <div class="grid grid-cols-2 gap-2">
-              <button type="button" id="loadPresetMountain" class="px-2 py-1.5 rounded bg-app-surface border border-app-border hover:border-tech-cyan/60 hover:bg-app-hover transition-colors text-[10px] font-mono text-slate-300 flex items-center justify-center gap-1.5 cursor-pointer text-left">
-                <span class="material-symbols-outlined text-[14px] text-tech-cyan">landscape</span>
-                <span class="truncate">Mountain Pass</span>
-              </button>
-              <button type="button" id="loadPresetSuburban" class="px-2 py-1.5 rounded bg-app-surface border border-app-border hover:border-tech-cyan/60 hover:bg-app-hover transition-colors text-[10px] font-mono text-slate-300 flex items-center justify-center gap-1.5 cursor-pointer text-left">
-                <span class="material-symbols-outlined text-[14px] text-amber-400">home</span>
-                <span class="truncate">Suburban Sector</span>
-              </button>
-            </div>
-          </div>
         </div>
 
         <!-- SECTION 2: 10-STAGE PIPELINE STEPPER -->
@@ -470,7 +454,7 @@
           <!-- 3D Controls & Viewport Actions -->
           <div class="flex items-center gap-1">
             <!-- 3D Labels Toggle Button -->
-            <button id="toggleLabelsBtn" class="px-2 py-1 rounded bg-app-surface text-amber-400 text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Toggle 3D Structure Labels">
+            <button id="toggleLabelsBtn" class="px-2 py-1 rounded bg-app-surface text-slate-500 text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Toggle 3D Feature Labels">
               <span class="material-symbols-outlined text-[14px]">label</span>
               <span class="hidden sm:inline">Labels</span>
             </button>
@@ -482,19 +466,19 @@
             </button>
 
             <!-- Overlays Toggle Buttons -->
-            <button id="toggleTrajectoryBtn" class="px-2 py-1 rounded bg-app-surface text-tech-cyan text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Toggle Flight Path Trajectory">
+            <button id="toggleTrajectoryBtn" class="px-2 py-1 rounded bg-app-surface text-slate-500 text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Toggle Flight Path Trajectory">
               <span class="material-symbols-outlined text-[14px]">route</span>
               <span class="hidden sm:inline">Trajectory</span>
             </button>
             
-            <button id="toggleGridBtn" class="px-2 py-1 rounded bg-app-surface text-tech-cyan text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Toggle Survey Floor Grid">
+            <button id="toggleGridBtn" class="px-2 py-1 rounded bg-app-surface text-slate-500 text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Toggle Survey Floor Grid">
               <span class="material-symbols-outlined text-[14px]">grid_4x4</span>
               <span class="hidden sm:inline">Grid</span>
             </button>
             
-            <button id="toggleBboxBtn" class="px-2 py-1 rounded bg-app-surface text-tech-cyan text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Toggle 3D Bounding Box">
-              <span class="material-symbols-outlined text-[14px]">crop_free</span>
-              <span class="hidden sm:inline">BBox</span>
+            <button id="fitSceneBtn" class="px-2 py-1 rounded bg-app-surface text-tech-cyan text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Fit Entire Reconstructed Scene">
+              <span class="material-symbols-outlined text-[14px]">fit_screen</span>
+              <span class="hidden sm:inline">Fit Scene</span>
             </button>
             
             <button id="toggleHudBtn" class="px-2 py-1 rounded bg-app-surface text-tech-cyan text-[10px] font-mono border border-app-border flex items-center gap-1 hover:bg-app-hover transition-colors" title="Toggle On-Screen HUD Overlay">
@@ -776,31 +760,53 @@
       const largeCanvasVideo = document.getElementById('largeCanvasVideo');
 
       let scene, camera, renderer, controls;
-      let pointCloudMesh, surfaceMesh, wireframeMesh, trajectoryLine, gridHelper, bboxHelper;
+      let pointCloudMesh, surfaceMesh, wireframeMesh, trajectoryLine, gridHelper;
       let photoMesh, semanticMesh, elevationMesh;
-      let real3DElementsGroup = null;
-      let selectedObjectHighlight = null;
       let structureLabelsArray = [];
-      let showLabels = true;
+      let showLabels = false;
       let currentDisplayMode = 'photomesh';
       let isModelReconstructed = false;
       let currentGeometryBounds = null;
 
+      function getGaussianSplatTexture() {
+        if (window._splatTexture) return window._splatTexture;
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+        grad.addColorStop(0.0, 'rgba(255, 255, 255, 1.0)');
+        grad.addColorStop(0.25, 'rgba(255, 255, 255, 0.85)');
+        grad.addColorStop(0.6, 'rgba(255, 255, 255, 0.35)');
+        grad.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 64, 64);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.needsUpdate = true;
+        window._splatTexture = tex;
+        return tex;
+      }
+
       function init3D() {
-        // Scene & Dark Survey Fog
+        // Scene & Neutral Photogrammetry Studio Atmosphere
         scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x090e15);
-        scene.fog = new THREE.Fog(0x090e15, 140, 320);
+        scene.background = new THREE.Color(0x0a0f16);
+        scene.fog = new THREE.FogExp2(0x0a0f16, 0.002);
 
         // Camera
         const aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
-        camera = new THREE.PerspectiveCamera(48, aspect, 0.1, 1000);
-        camera.position.set(52, 44, 52);
+        camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
+        camera.position.set(50, 42, 50);
 
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
         renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.1;
+        if (renderer.outputColorSpace !== undefined) {
+          renderer.outputColorSpace = THREE.SRGBColorSpace;
+        }
         renderer.domElement.className = 'w-full h-full block focus:outline-none cursor-grab active:cursor-grabbing';
         canvasContainer.insertBefore(renderer.domElement, canvasContainer.firstChild);
 
@@ -808,24 +814,28 @@
         controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
-        controls.maxPolarAngle = Math.PI / 2 + 0.05;
+        controls.maxPolarAngle = Math.PI / 2 - 0.02;
+        controls.minDistance = 5;
+        controls.maxDistance = 250;
         controls.target.set(0, 2, 0);
 
-        // Natural Daylight & Ambient Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
-        scene.add(ambientLight);
+        // Natural Daylight & Ambient Illumination
+        const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x1e293b, 0.95);
+        scene.add(hemiLight);
 
         const sunLight = new THREE.DirectionalLight(0xfffaed, 1.35);
         sunLight.position.set(45, 85, 45);
+        sunLight.castShadow = true;
         scene.add(sunLight);
 
-        const skyFillLight = new THREE.DirectionalLight(0xf1f5f9, 0.65);
+        const skyFillLight = new THREE.DirectionalLight(0x94a3b8, 0.45);
         skyFillLight.position.set(-45, 60, -45);
         scene.add(skyFillLight);
 
-        // Floor Survey Grid (sitting directly under the solid 3D terrain base y = -4.5)
-        gridHelper = new THREE.GridHelper(110, 55, 0x0284c7, 0x1e293b);
-        gridHelper.position.y = -4.55;
+        // Subtle Ground Datum (soft, non-intrusive)
+        gridHelper = new THREE.GridHelper(100, 40, 0x1e293b, 0x0f172a);
+        gridHelper.position.y = 0.95;
+        gridHelper.visible = false;
         scene.add(gridHelper);
 
         // Start render loop
@@ -899,7 +909,25 @@
         scene.add(pointCloudMesh);
       }
 
-      // Builds the full textured mesh, trajectory & bounding box using real video point cloud from backend
+      function fitCameraToScene() {
+        if (!currentGeometryBounds || !camera || !controls) return;
+        const { minX, maxX, minY, maxY, minZ, maxZ } = currentGeometryBounds;
+        const cx = (minX + maxX) * 0.5;
+        const cy = (minY + maxY) * 0.5;
+        const cz = (minZ + maxZ) * 0.5;
+        const spanX = Math.max(20, maxX - minX);
+        const spanZ = Math.max(20, maxZ - minZ);
+        const maxSpan = Math.max(spanX, spanZ);
+
+        controls.target.set(cx, cy + 1.0, cz);
+        const dist = maxSpan * 0.95;
+        // Oblique aerial perspective looking down across the reconstructed landscape
+        camera.position.set(cx + dist * 0.65, cy + dist * 0.68, cz + dist * 0.72);
+        camera.lookAt(cx, cy + 1.0, cz);
+        controls.update();
+      }
+
+      // Builds the full continuous textured 3D photogrammetric mesh, point cloud & trajectory
       function buildFinal3DGeometry(arg1, arg2, arg3) {
         if (emptyStateOverlay) emptyStateOverlay.classList.add('hidden');
         let ptsData = {};
@@ -921,7 +949,6 @@
         if (surfaceMesh) scene.remove(surfaceMesh);
         if (wireframeMesh) scene.remove(wireframeMesh);
         if (trajectoryLine) scene.remove(trajectoryLine);
-        if (bboxHelper) scene.remove(bboxHelper);
 
         const labelsContainer = document.getElementById('labels3DContainer');
         if (labelsContainer) labelsContainer.innerHTML = '';
@@ -931,7 +958,7 @@
         const count = pts.length;
         if (count === 0 && (!ptsData.mesh || !ptsData.mesh.vertices)) return;
 
-        // 1. Real 3D Point Cloud with Exact Pixel Colors from Video
+        // 1. High-Density 3D Gaussian Splats / LiDAR Point Cloud
         const pGeom = new THREE.BufferGeometry();
         const pPositions = new Float32Array(count * 3);
         const pColors = new Float32Array(count * 3);
@@ -966,10 +993,13 @@
         pGeom.setAttribute('color', new THREE.BufferAttribute(pColors, 3));
 
         const pMaterial = new THREE.PointsMaterial({
-          size: 0.85,
+          size: 1.15,
+          sizeAttenuation: true,
+          map: getGaussianSplatTexture(),
           vertexColors: true,
           transparent: true,
-          opacity: 0.9,
+          opacity: 0.92,
+          depthWrite: false,
           blending: THREE.NormalBlending
         });
 
@@ -977,7 +1007,7 @@
         pointCloudMesh.visible = false;
         scene.add(pointCloudMesh);
 
-        // 2. High-Resolution Photogrammetric Mesh & Materials
+        // 2. High-Resolution Continuous Photogrammetric Mesh & Thematic Materials
         let meshGeom = null;
         if (ptsData.mesh && ptsData.mesh.vertices && ptsData.mesh.vertices.length > 0) {
           const vData = ptsData.mesh.vertices;
@@ -993,11 +1023,11 @@
 
           const yRange = Math.max(1.0, maxY - minY);
 
-          const cBuilding = new THREE.Color(0xf59e0b);   // Amber
-          const cRoad = new THREE.Color(0x06b6d4);       // Cyan
-          const cVeg = new THREE.Color(0x10b981);        // Emerald
+          const cBuilding = new THREE.Color(0xf59e0b);   // Amber (ASPRS 6)
+          const cRoad = new THREE.Color(0x06b6d4);       // Cyan (ASPRS 11)
+          const cVeg = new THREE.Color(0x10b981);        // Emerald (ASPRS 5)
           const cWater = new THREE.Color(0x0284c7);      // Sky Blue (ASPRS 9)
-          const cGround = new THREE.Color(0x64748b);     // Slate
+          const cGround = new THREE.Color(0x64748b);     // Slate (ASPRS 2)
 
           for (let i = 0; i < vCount; i++) {
             const vx = vData[i][0], vy = vData[i][1], vz = vData[i][2];
@@ -1010,7 +1040,7 @@
               uvs[i * 2 + 1] = uvData[i][1];
             } else {
               uvs[i * 2] = (vx - minX) / Math.max(1, maxX - minX);
-              uvs[i * 2 + 1] = (vz - minZ) / Math.max(1, maxZ - minZ);
+              uvs[i * 2 + 1] = 1.0 - ((vz - minZ) / Math.max(1, maxZ - minZ));
             }
 
             // Semantic Color by ASPRS class
@@ -1042,34 +1072,37 @@
           meshGeom.setIndex(new THREE.BufferAttribute(indices, 1));
           meshGeom.computeVertexNormals();
 
-          // A. Photorealistic Drone Texture Material (Default)
+          // A. Photorealistic Drone Texture Material (Default Centerpiece)
           const textureUrl = ptsData.texture_url || `/data/output/${currentJobId}/texture.jpg`;
           const texLoader = new THREE.TextureLoader();
           texLoader.load(textureUrl, (tex) => {
             tex.generateMipmaps = true;
-            tex.anisotropy = 8;
+            tex.anisotropy = renderer.capabilities ? renderer.capabilities.getMaxAnisotropy() : 8;
+            if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
             const photoMat = new THREE.MeshStandardMaterial({
               map: tex,
-              roughness: 0.65,
-              metalness: 0.12,
+              roughness: 0.70,
+              metalness: 0.04,
               side: THREE.DoubleSide
             });
             photoMesh = new THREE.Mesh(meshGeom, photoMat);
             scene.add(photoMesh);
+            fitCameraToScene();
             setDisplayMode(currentDisplayMode);
           }, undefined, (err) => {
             console.warn('Fallback texture loading:', err);
-            const fallbackMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.7, side: THREE.DoubleSide });
+            const fallbackMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.75, side: THREE.DoubleSide });
             photoMesh = new THREE.Mesh(meshGeom, fallbackMat);
             scene.add(photoMesh);
+            fitCameraToScene();
             setDisplayMode(currentDisplayMode);
           });
 
           // B. Semantic Classification Mesh (ASPRS Standard)
           const semMat = new THREE.MeshStandardMaterial({
             vertexColors: true,
-            roughness: 0.65,
-            metalness: 0.1,
+            roughness: 0.68,
+            metalness: 0.08,
             side: THREE.DoubleSide
           });
           semanticMesh = new THREE.Mesh(meshGeom.clone(), semMat);
@@ -1081,53 +1114,28 @@
           elevGeom.setAttribute('color', new THREE.BufferAttribute(elevColors, 3));
           const elevMat = new THREE.MeshStandardMaterial({
             vertexColors: true,
-            roughness: 0.65,
-            metalness: 0.1,
+            roughness: 0.68,
+            metalness: 0.08,
             side: THREE.DoubleSide
           });
           elevationMesh = new THREE.Mesh(elevGeom, elevMat);
           elevationMesh.visible = false;
           scene.add(elevationMesh);
 
-          // D. Wireframe Mesh
+          // D. Wireframe TIN Mesh
           const wfMat = new THREE.MeshBasicMaterial({
             color: 0x38bdf8,
             wireframe: true,
             transparent: true,
-            opacity: 0.55
+            opacity: 0.5
           });
           wireframeMesh = new THREE.Mesh(meshGeom.clone(), wfMat);
           wireframeMesh.visible = false;
           scene.add(wireframeMesh);
         }
 
-        // 2B. Build Real 3D Elements (Houses with Pitched Roofs, Vehicles with Wheels, Trees with Foliage, Roads with Curbs, Water Basins)
-        if (real3DElementsGroup) scene.remove(real3DElementsGroup);
-        real3DElementsGroup = new THREE.Group();
+        // 3. 3D Floating Survey Pins (Subtle & Non-Intrusive, Toggled via Labels button)
         const structures = ptsData.structures || [];
-
-        structures.forEach((s) => {
-          const cat = s.category;
-          if (cat === 'building') {
-            const bldgGroup = create3DHouse(s);
-            real3DElementsGroup.add(bldgGroup);
-          } else if (cat === 'vehicle') {
-            const vehGroup = create3DVehicle(s);
-            real3DElementsGroup.add(vehGroup);
-          } else if (cat === 'vegetation') {
-            const treeGroup = create3DTree(s);
-            real3DElementsGroup.add(treeGroup);
-          } else if (cat === 'water') {
-            const waterMesh = create3DWater(s);
-            real3DElementsGroup.add(waterMesh);
-          } else if (cat === 'infrastructure' && s.type && s.type.includes('Road')) {
-            const roadMesh = create3DRoad(s);
-            real3DElementsGroup.add(roadMesh);
-          }
-        });
-        scene.add(real3DElementsGroup);
-
-        // 3. 3D Floating Semantic Labels for Detected Features
         if (labelsContainer && structures.length > 0) {
           structures.forEach((s) => {
             const pin = document.createElement('div');
@@ -1162,20 +1170,7 @@
               arrowBg = 'bg-blue-400';
             }
             
-            let metricText = s.display_metric;
-            if (!metricText) {
-              if (cat === 'mountain') {
-                metricText = `Elev: ${s.height_m}m • L: ${s.length_m || 50}m`;
-              } else if (cat === 'infrastructure') {
-                metricText = `Span: ${s.length_m || 50}m • H: ${s.height_m}m`;
-              } else if (cat === 'water') {
-                metricText = `Area: ${s.area_m2}m² • Elev: ${s.height_m}m`;
-              } else if (cat === 'vegetation') {
-                metricText = `R: ${s.radius_m || 2}m • H: ${s.height_m}m`;
-              } else {
-                metricText = `${s.length_m}×${s.width_m}m • H: ${s.height_m}m`;
-              }
-            }
+            let metricText = s.display_metric || `${s.length_m || 0}×${s.width_m || 0}m`;
 
             pin.innerHTML = `
               <div class="bg-app-panel/95 backdrop-blur border ${badgeBorder} text-[10px] font-mono px-2.5 py-1 rounded shadow-xl flex items-center gap-1.5 hover:border-tech-cyan hover:text-white transition-all scale-95 hover:scale-105">
@@ -1219,22 +1214,7 @@
           scene.add(trajectoryLine);
         }
 
-        // 5. Exact Real 3D Bounding Box
-        const bWidth = Math.max(10, maxX - minX);
-        const bHeight = Math.max(5, maxY - minY);
-        const bDepth = Math.max(10, maxZ - minZ);
-        const bboxGeom = new THREE.BoxGeometry(bWidth, bHeight, bDepth);
-        const bboxEdges = new THREE.EdgesGeometry(bboxGeom);
-        bboxHelper = new THREE.LineSegments(bboxEdges, new THREE.LineBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.75 }));
-        bboxHelper.position.set((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
-        scene.add(bboxHelper);
-
-        // Center camera nicely on video's reconstructed geometry
-        const centerX = (minX + maxX) * 0.5;
-        const centerY = (minY + maxY) * 0.5;
-        const centerZ = (minZ + maxZ) * 0.5;
-        controls.target.set(centerX, centerY, centerZ);
-        controls.update();
+        fitCameraToScene();
 
         isModelReconstructed = true;
         setDisplayMode(currentDisplayMode);
@@ -1269,54 +1249,33 @@
 
         if (mode === 'photomesh') {
           if (photoMesh) photoMesh.visible = true;
-          if (real3DElementsGroup) real3DElementsGroup.visible = true;
           if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-tech-cyan pulse-glow"></span> Mode: Drone Photo 3D (Textured)';
         } else if (mode === 'semantic') {
           if (semanticMesh) semanticMesh.visible = true;
-          if (real3DElementsGroup) real3DElementsGroup.visible = true;
           if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> Mode: AI Semantic Classification (ASPRS)';
         } else if (mode === 'elevation') {
           if (elevationMesh) elevationMesh.visible = true;
-          if (real3DElementsGroup) real3DElementsGroup.visible = false;
           if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Mode: Digital Surface Model (DSM Elevation)';
         } else if (mode === 'pointcloud') {
           if (pointCloudMesh) pointCloudMesh.visible = true;
-          if (real3DElementsGroup) real3DElementsGroup.visible = false;
-          if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-sky-400"></span> Mode: ASPRS LiDAR Point Cloud';
+          if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-sky-400"></span> Mode: 3D Gaussian Splats / LiDAR Cloud';
         } else if (mode === 'wireframe') {
           if (wireframeMesh) wireframeMesh.visible = true;
-          if (real3DElementsGroup) real3DElementsGroup.visible = true;
           if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-purple-400"></span> Mode: Structural Wireframe Mesh';
         }
       }
 
-      // -------------------------------------------------------------
-      // 2C. PROCEDURAL REAL 3D ARCHITECTURAL & TACTICAL OBJECT BUILDERS
-      // -------------------------------------------------------------
       function selectStructure(s) {
         if (!s) return;
-        controls.target.set(s.x, s.y + (s.height_m || 2.0) * 0.5, s.z);
+        // Smoothly focus camera target on structure location on the continuous 3D mesh
+        controls.target.set(s.x, s.y, s.z);
         controls.update();
 
-        // High-contrast 3D tactical wireframe highlight box
-        if (selectedObjectHighlight) scene.remove(selectedObjectHighlight);
-        const l = (s.length_m || 5.0) + 0.6;
-        const w = (s.width_m || 5.0) + 0.6;
-        const h = (s.height_m || 3.0) + 0.6;
-        const hGeom = new THREE.BoxGeometry(l, h, w);
-        const hEdges = new THREE.EdgesGeometry(hGeom);
-        selectedObjectHighlight = new THREE.LineSegments(hEdges, new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 }));
-        selectedObjectHighlight.position.set(s.x, s.y + h * 0.5, s.z);
-        if (s.rotation_deg) {
-          selectedObjectHighlight.rotation.y = THREE.MathUtils.degToRad(s.rotation_deg);
-        }
-        scene.add(selectedObjectHighlight);
-
-        // Populate Tactical Intelligence Card
+        // Populate Survey Inspector Panel
         const card = document.getElementById('tacticalIntelCard');
         if (card) {
-          document.getElementById('ticId').textContent = s.id || 'TARGET';
-          document.getElementById('ticType').textContent = s.type || 'Structure';
+          document.getElementById('ticId').textContent = s.id || 'FEATURE';
+          document.getElementById('ticType').textContent = s.type || 'Reconstructed Feature';
           document.getElementById('ticIcon').textContent = s.icon || 'domain';
           document.getElementById('ticDims').textContent = `${s.length_m || 0}×${s.width_m || 0}×${s.height_m || 0}m`;
           document.getElementById('ticArea').textContent = `${s.area_m2 || 0} m²`;
@@ -1324,239 +1283,17 @@
           document.getElementById('ticVol').textContent = `${vol} m³`;
           document.getElementById('ticElev').textContent = `${s.y >= 0 ? '+' : ''}${s.y}m Datum`;
           
-          let asprsText = 'Class 2 (Ground)';
+          let asprsText = 'Class 2 (Ground Topography)';
           if (s.category === 'building') asprsText = 'Class 6 (Building / Structure)';
-          else if (s.category === 'vegetation') asprsText = 'Class 5 (High Vegetation)';
+          else if (s.category === 'vegetation') asprsText = 'Class 5 (High Vegetation Canopy)';
           else if (s.category === 'water') asprsText = 'Class 9 (Water Surface)';
-          else if (s.category === 'infrastructure') asprsText = 'Class 11 (Road / Infrastructure)';
-          else if (s.category === 'vehicle') asprsText = 'Class 2 (Mobile Ground Asset)';
+          else if (s.category === 'infrastructure') asprsText = 'Class 11 (Road Thoroughfare)';
+          else if (s.category === 'vehicle') asprsText = 'Class 2 (Surface Ground Asset)';
           else if (s.category === 'mountain') asprsText = 'Class 2 (Topographic Relief)';
           document.getElementById('ticAsprs').textContent = asprsText;
 
           card.classList.remove('hidden');
         }
-      }
-
-      function create3DHouse(s) {
-        const group = new THREE.Group();
-        const hl = s.length_m * 0.5, hw = s.width_m * 0.5;
-        const bh = s.height_m, wall_h = s.wall_height_m || (bh * 0.65);
-        
-        // 1. Exterior Walls (Solid Clapboard / Siding)
-        const wallMat = new THREE.MeshStandardMaterial({
-          color: 0xf1f5f9,
-          roughness: 0.65,
-          metalness: 0.05
-        });
-        const wallGeom = new THREE.BoxGeometry(s.length_m, wall_h, s.width_m);
-        const wallMesh = new THREE.Mesh(wallGeom, wallMat);
-        wallMesh.position.y = wall_h * 0.5;
-        wallMesh.castShadow = true;
-        wallMesh.receiveShadow = true;
-        group.add(wallMesh);
-
-        // 2. Front Entrance Door & Porch Step
-        const doorMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.45 });
-        const doorW = Math.min(1.2, s.length_m * 0.22);
-        const doorH = Math.min(2.2, wall_h * 0.82);
-        const door = new THREE.Mesh(new THREE.BoxGeometry(doorW, doorH, 0.1), doorMat);
-        door.position.set(0, doorH * 0.5, hw + 0.05);
-        group.add(door);
-
-        const step = new THREE.Mesh(new THREE.BoxGeometry(doorW * 1.5, 0.18, 0.6), new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.8 }));
-        step.position.set(0, 0.09, hw + 0.32);
-        group.add(step);
-
-        // 3. Realistic Front Windows
-        const winGlass = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.12, metalness: 0.85 });
-        const winFrame = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
-        const makeWindow = (wx, wy, wz) => {
-          const frame = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.2, 0.06), winFrame);
-          const glass = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.05, 0.08), winGlass);
-          const wg = new THREE.Group();
-          wg.add(frame); wg.add(glass);
-          wg.position.set(wx, wy, wz);
-          group.add(wg);
-        };
-        if (s.length_m >= 5.5) {
-          makeWindow(-hl * 0.55, wall_h * 0.55, hw + 0.04);
-          makeWindow(hl * 0.55, wall_h * 0.55, hw + 0.04);
-        }
-
-        // 4. Authentic Pitched / Hipped Roof with Eaves Overhang (0.35m)
-        const el = hl + 0.35, ew = hw + 0.35;
-        const rl = Math.max(0.6, el - Math.min(el * 0.35, ew * 0.7));
-        const roofGeom = new THREE.BufferGeometry();
-        const rPos = new Float32Array([
-          -el, wall_h, -ew,
-           el, wall_h, -ew,
-           el, wall_h,  ew,
-          -el, wall_h,  ew,
-          -rl, bh, 0,
-           rl, bh, 0
-        ]);
-        const rIndices = [
-          0, 4, 1,   1, 4, 5,
-          2, 5, 3,   3, 5, 4,
-          3, 4, 0,
-          1, 5, 2
-        ];
-        roofGeom.setAttribute('position', new THREE.BufferAttribute(rPos, 3));
-        roofGeom.setIndex(rIndices);
-        roofGeom.computeVertexNormals();
-
-        let roofColor = 0xb45309;
-        if (s.roof_color && s.roof_color.startsWith('#')) {
-          roofColor = parseInt(s.roof_color.replace('#', '0x'), 16);
-        }
-        const roofMat = new THREE.MeshStandardMaterial({
-          color: roofColor,
-          roughness: 0.52,
-          metalness: 0.08,
-          side: THREE.DoubleSide
-        });
-        const roofMesh = new THREE.Mesh(roofGeom, roofMat);
-        roofMesh.castShadow = true;
-        roofMesh.receiveShadow = true;
-        group.add(roofMesh);
-
-        // Position & Rotate
-        group.position.set(s.x, s.y, s.z);
-        group.rotation.y = THREE.MathUtils.degToRad(s.rotation_deg || 0);
-        group.userData = { structure: s };
-        return group;
-      }
-
-      function create3DVehicle(s) {
-        const group = new THREE.Group();
-        const vl = s.length_m, vw = s.width_m, vh = s.height_m;
-        const isCommercial = s.type && (s.type.includes('Commercial') || s.type.includes('Truck') || s.type.includes('Transport'));
-        const paintColor = isCommercial ? 0xd97706 : 0x2563eb;
-
-        // 1. Lower Chassis
-        const chMat = new THREE.MeshStandardMaterial({ color: paintColor, roughness: 0.35, metalness: 0.75 });
-        const chassis = new THREE.Mesh(new THREE.BoxGeometry(vl, vh * 0.38, vw), chMat);
-        chassis.position.y = vh * 0.32;
-        group.add(chassis);
-
-        // 2. Cabin / Windshield
-        const cabMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.12, metalness: 0.7, transparent: true, opacity: 0.82 });
-        const cabW = isCommercial ? vw * 0.95 : vw * 0.85;
-        const cabL = isCommercial ? vl * 0.42 : vl * 0.55;
-        const cabin = new THREE.Mesh(new THREE.BoxGeometry(cabL, vh * 0.48, cabW), cabMat);
-        cabin.position.set(isCommercial ? -vl * 0.22 : -vl * 0.05, vh * 0.72, 0);
-        group.add(cabin);
-
-        if (isCommercial) {
-          const cargoBox = new THREE.Mesh(new THREE.BoxGeometry(vl * 0.55, vh * 0.75, vw), new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.5 }));
-          cargoBox.position.set(vl * 0.2, vh * 0.65, 0);
-          group.add(cargoBox);
-        }
-
-        // 3. 4 Rubber Wheels with Hubcaps
-        const r = vh * 0.22, tw = Math.min(0.28, vw * 0.18);
-        const wGeom = new THREE.CylinderGeometry(r, r, tw, 16);
-        wGeom.rotateZ(Math.PI / 2);
-        const wMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 });
-        const hubMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.3 });
-        const hubGeom = new THREE.CylinderGeometry(r * 0.5, r * 0.5, tw + 0.02, 8);
-        hubGeom.rotateZ(Math.PI / 2);
-
-        const addWheel = (wx, wz) => {
-          const wMesh = new THREE.Mesh(wGeom, wMat);
-          const hMesh = new THREE.Mesh(hubGeom, hubMat);
-          const wSub = new THREE.Group();
-          wSub.add(wMesh); wSub.add(hMesh);
-          wSub.position.set(wx, r, wz);
-          group.add(wSub);
-        };
-        const xF = vl * 0.32, xR = -vl * 0.32;
-        const zL = vw * 0.48, zR = -vw * 0.48;
-        addWheel(xF, zL); addWheel(xF, zR);
-        addWheel(xR, zL); addWheel(xR, zR);
-
-        // 4. Headlights & Taillights
-        const hl = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.15, 0.25), new THREE.MeshBasicMaterial({ color: 0xfef08a }));
-        hl.position.set(vl * 0.5, vh * 0.35, vw * 0.3);
-        const hl2 = hl.clone(); hl2.position.z = -vw * 0.3;
-        const tl = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.15, 0.25), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
-        tl.position.set(-vl * 0.5, vh * 0.35, vw * 0.3);
-        const tl2 = tl.clone(); tl2.position.z = -vw * 0.3;
-        group.add(hl); group.add(hl2); group.add(tl); group.add(tl2);
-
-        group.position.set(s.x, s.y, s.z);
-        group.rotation.y = THREE.MathUtils.degToRad(s.rotation_deg || 0);
-        group.userData = { structure: s };
-        return group;
-      }
-
-      function create3DTree(s) {
-        const group = new THREE.Group();
-        const th = s.height_m, tr = s.radius_m || 2.2;
-        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x452a19, roughness: 0.95 });
-        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(tr * 0.16, tr * 0.24, th * 0.45, 8), trunkMat);
-        trunk.position.y = th * 0.225;
-        group.add(trunk);
-
-        const folMat1 = new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.8 });
-        const folMat2 = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.75 });
-        const c1 = new THREE.Mesh(new THREE.ConeGeometry(tr, th * 0.55, 8), folMat1);
-        c1.position.y = th * 0.52;
-        const c2 = new THREE.Mesh(new THREE.ConeGeometry(tr * 0.78, th * 0.46, 8), folMat2);
-        c2.position.y = th * 0.74;
-        group.add(c1); group.add(c2);
-
-        group.position.set(s.x, s.y, s.z);
-        group.userData = { structure: s };
-        return group;
-      }
-
-      function create3DWater(s) {
-        const group = new THREE.Group();
-        const wGeom = new THREE.PlaneGeometry(s.length_m, s.width_m, 12, 12);
-        wGeom.rotateX(-Math.PI / 2);
-        const wMat = new THREE.MeshStandardMaterial({
-          color: 0x0284c7,
-          roughness: 0.08,
-          metalness: 0.88,
-          transparent: true,
-          opacity: 0.88,
-          side: THREE.DoubleSide
-        });
-        const wMesh = new THREE.Mesh(wGeom, wMat);
-        group.add(wMesh);
-        group.position.set(s.x, s.y, s.z);
-        group.userData = { structure: s };
-        return group;
-      }
-
-      function create3DRoad(s) {
-        const group = new THREE.Group();
-        const rl = s.length_m, rw = s.width_m;
-        const roadMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.85 });
-        const roadMesh = new THREE.Mesh(new THREE.BoxGeometry(rl, 0.06, rw), roadMat);
-        roadMesh.position.y = 0.03;
-        group.add(roadMesh);
-
-        // Raised Concrete Curbs on Flanks
-        const curbMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.7 });
-        const curbL = new THREE.Mesh(new THREE.BoxGeometry(rl, 0.16, 0.28), curbMat);
-        curbL.position.set(0, 0.08, rw * 0.5 - 0.14);
-        const curbR = new THREE.Mesh(new THREE.BoxGeometry(rl, 0.16, 0.28), curbMat);
-        curbR.position.set(0, 0.08, -rw * 0.5 + 0.14);
-        group.add(curbL); group.add(curbR);
-
-        // Dashed White Center Line
-        const lineMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc });
-        for (let x = -rl * 0.45; x <= rl * 0.45; x += 4.0) {
-          const dash = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.07, 0.16), lineMat);
-          dash.position.set(x, 0.035, 0);
-          group.add(dash);
-        }
-
-        group.position.set(s.x, s.y, s.z);
-        group.userData = { structure: s };
-        return group;
       }
 
       function animate() {
@@ -1607,15 +1344,24 @@
         mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(mouse, camera);
 
-        if (real3DElementsGroup) {
-          const intersects = raycaster.intersectObjects(real3DElementsGroup.children, true);
+        const targets = [photoMesh, semanticMesh, elevationMesh, wireframeMesh].filter(Boolean);
+        if (targets.length > 0) {
+          const intersects = raycaster.intersectObjects(targets, false);
           if (intersects.length > 0) {
-            let obj = intersects[0].object;
-            while (obj && (!obj.userData || !obj.userData.structure) && obj.parent) {
-              obj = obj.parent;
-            }
-            if (obj && obj.userData && obj.userData.structure) {
-              selectStructure(obj.userData.structure);
+            const hitPt = intersects[0].point;
+            let nearestStructure = null;
+            let minD = Infinity;
+            structureLabelsArray.forEach(item => {
+              const s = item.structure;
+              const dist = Math.sqrt((hitPt.x - s.x)**2 + (hitPt.z - s.z)**2);
+              const radius = Math.max(2.5, (s.length_m || 5.0) * 0.6);
+              if (dist <= radius && dist < minD) {
+                minD = dist;
+                nearestStructure = s;
+              }
+            });
+            if (nearestStructure) {
+              selectStructure(nearestStructure);
             }
           }
         }
@@ -1623,10 +1369,6 @@
 
       document.getElementById('ticCloseBtn')?.addEventListener('click', () => {
         document.getElementById('tacticalIntelCard')?.classList.add('hidden');
-        if (selectedObjectHighlight) {
-          scene.remove(selectedObjectHighlight);
-          selectedObjectHighlight = null;
-        }
       });
 
       // -------------------------------------------------------------
@@ -1726,14 +1468,13 @@
         toggleGridBtn.classList.toggle('text-slate-500', !gridHelper.visible);
       });
 
-      // Toggle BBox Button
-      const toggleBboxBtn = document.getElementById('toggleBboxBtn');
-      toggleBboxBtn.addEventListener('click', () => {
-        if (!bboxHelper) return;
-        bboxHelper.visible = !bboxHelper.visible;
-        toggleBboxBtn.classList.toggle('text-tech-cyan', bboxHelper.visible);
-        toggleBboxBtn.classList.toggle('text-slate-500', !bboxHelper.visible);
-      });
+      // Fit Scene Button
+      const fitSceneBtn = document.getElementById('fitSceneBtn');
+      if (fitSceneBtn) {
+        fitSceneBtn.addEventListener('click', () => {
+          fitCameraToScene();
+        });
+      }
 
       // Viewport HUD Overlay Controls: Minimize, Dock to Bottom, Drag, & Global Toggle
       const vpHudCard = document.getElementById('vpHudCard');
@@ -1828,9 +1569,7 @@
       // Reset Camera Button
       document.getElementById('resetCameraBtn').addEventListener('click', () => {
         if (!camera || !controls) return;
-        camera.position.set(45, 35, 55);
-        controls.target.set(0, 5, 0);
-        controls.update();
+        fitCameraToScene();
       });
 
       // Fullscreen Button
@@ -2354,36 +2093,18 @@
 
       window.loadJobModel = loadJobById;
 
-      document.getElementById('loadPresetMountain')?.addEventListener('click', () => {
-        loadJobById('375a79a3-6d01-44b4-ba91-e762d7cf0664');
-      });
-      document.getElementById('loadPresetSuburban')?.addEventListener('click', () => {
-        loadJobById('4de4327a-d93a-48cb-89dd-4c5812009f5f');
-      });
 
-      // Auto-load latest reconstruction or job from query param
+      // Auto-load only if explicit ?job_id= is in the URL
       async function autoLoadLatestJob() {
         const urlParams = new URLSearchParams(window.location.search);
         let targetJob = urlParams.get('job_id');
-        if (!targetJob) {
-          try {
-            const lRes = await fetch('/api/v1/latest');
-            if (lRes.ok) {
-              const lData = await lRes.json();
-              if (lData && lData.job_id) {
-                targetJob = lData.job_id;
-              }
-            }
-          } catch (e) {
-            console.warn('Could not auto-fetch latest job', e);
-          }
-        }
         if (targetJob) {
           await loadJobById(targetJob);
         }
+        // Otherwise start with a clean slate — user must upload or trigger reconstruction
       }
 
-      // Automatically trigger loading of the latest survey model
+      // Only auto-load if URL has explicit job_id parameter
       setTimeout(autoLoadLatestJob, 150);
 
       // --- FORMATION DIAGNOSTICS MODAL CONTROLLER ---

@@ -80,22 +80,25 @@ class KeyframeConfig:
 @dataclass
 class DynamicMaskConfig:
     """Dynamic object masking settings."""
-    yolo_model: str = "yolov8n.pt"     # YOLO model variant
-    confidence: float = 0.25           # Detection confidence threshold
+    yolo_model: str = "yolov8n-seg.pt"     # YOLO instance segmentation model (or yolov8n.pt)
+    confidence: float = 0.25               # Detection confidence threshold
     target_classes: list = field(default_factory=lambda: [0, 2, 5, 7, 8])
     # COCO IDs: 0=person, 2=car, 5=bus, 7=truck, 8=boat
-    use_sam2: bool = True              # Use SAM2 for precise masks
+    use_sam: bool = False                  # Use Segment Anything Model (SAM) for boundary refinement if available
+    sam_model: str = "facebook/sam-vit-base" # SAM model checkpoint name
+    use_sam2: bool = False                 # Deprecated alias for backward compatibility (maps to use_sam)
 
 
 @dataclass
 class SfMConfig:
     """Structure-from-Motion settings."""
-    feature_type: str = "aliked"       # "aliked" or "superpoint"
-    max_keypoints: int = 4096          # Max features per image
-    match_window: int = 8              # Sequential matching window size
-    mapper: str = "glomap"             # "glomap" or "colmap"
-    use_gpu: bool = True               # Use GPU for matching
-    gps_prior_weight: float = 1.0      # GPS prior strength in BA
+    feature_type: str = "sift"             # "sift", "aliked", or "superpoint"
+    camera_model: str = "SIMPLE_RADIAL"    # pycolmap camera model (SIMPLE_RADIAL, PINHOLE, OPENCV)
+    max_keypoints: int = 4096              # Max features per image
+    match_window: int = 8                  # Sequential matching window size
+    mapper: str = "colmap"                 # "colmap" or "glomap"
+    use_gpu: bool = True                   # Use GPU for matching
+    gps_prior_weight: float = 1.0          # GPS prior strength in BA
 
 
 @dataclass

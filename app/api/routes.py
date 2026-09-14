@@ -322,7 +322,7 @@ async def get_job_details(job_id: str):
     upload_dir = Path("data/uploads") / job_id
     output_dir = Path("data/output") / job_id
     
-    filename = "drone_flight.mp4"
+    filename = "Unknown Video"
     video_url = None
     file_size = 0
     width = 1920

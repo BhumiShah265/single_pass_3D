@@ -75,10 +75,17 @@ class KeyframeSelector:
             
             # 1. Check GPS displacement if available
             if gps_data and prev_path in gps_data and curr_path in gps_data:
-                p1 = np.array(gps_data[prev_path])
-                p2 = np.array(gps_data[curr_path])
-                # Simple Euclidean distance assuming local Cartesian or small lat/lon displacement
-                dist = np.linalg.norm(p1 - p2)
+                p1 = gps_data[prev_path]
+                p2 = gps_data[curr_path]
+                if abs(p1[0]) <= 90.0 and abs(p1[1]) <= 180.0:
+                    # Convert lat/lon degrees to metric distance in meters
+                    m_lat = (p2[0] - p1[0]) * 111139.0
+                    m_lon = (p2[1] - p1[1]) * 111139.0 * np.cos(np.radians(p1[0]))
+                    m_alt = p2[2] - p1[2]
+                    dist = float(np.sqrt(m_lat**2 + m_lon**2 + m_alt**2))
+                else:
+                    dist = float(np.linalg.norm(np.array(p1) - np.array(p2)))
+                    
                 if dist >= self.config.min_gps_distance:
                     baseline_sufficient = True
             
