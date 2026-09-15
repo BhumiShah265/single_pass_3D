@@ -39,22 +39,35 @@ def create_app() -> FastAPI:
 
 app = create_app()
 
-def run_server(host: str, port: int, reload: bool = True):
+def run_server(host: str, port: int, reload: bool = False):
     """Run the FastAPI server using uvicorn."""
     logger.info(f"Starting server on {host}:{port}")
-    uvicorn.run("app.main:app", host=host, port=port, reload=reload)
+    if reload:
+        uvicorn.run(
+            "app.main:app", 
+            host=host, 
+            port=port, 
+            reload=True,
+            reload_excludes=["openMVS_build/*", ".third_party/*", "data/*", ".local/*", "scratch/*", "*.db", "*.ply", "*.obj", "*.bin"]
+        )
+    else:
+        uvicorn.run(app, host=host, port=port)
 
 def run_cli(args):
     """Run the reconstruction pipeline via CLI."""
     logger.info(f"Starting CLI pipeline with video: {args.input_video}")
     config = PipelineConfig(
         input_video=args.input_video,
+        telemetry_path=args.telemetry_path,
         output_dir=args.output_dir,
         skip_dynamic_masking=args.skip_dynamic_masking,
         skip_depth_estimation=args.skip_depth_estimation,
         skip_georeferencing=args.skip_georeferencing,
         skip_analysis=args.skip_analysis
     )
+    if hasattr(args, "mapper_backend") and args.mapper_backend:
+        config.sfm.mapper_backend = args.mapper_backend
+        
     pipeline = ReconstructionPipeline(config)
     pipeline.run()
 
@@ -70,6 +83,8 @@ if __name__ == "__main__":
     # CLI command
     cli_parser = subparsers.add_parser("run", help="Run the pipeline via CLI")
     cli_parser.add_argument("input_video", type=str, help="Path to input video file")
+    cli_parser.add_argument("--telemetry_path", type=str, default=None, help="Path to flight telemetry log (.srt, .gpx, .csv)")
+    cli_parser.add_argument("--mapper_backend", type=str, default="glomap", choices=["glomap", "pycolmap"], help="SfM mapper backend")
     cli_parser.add_argument("--output_dir", type=str, default="data/output", help="Output directory")
     cli_parser.add_argument("--skip_dynamic_masking", action="store_true", help="Skip dynamic object masking")
     cli_parser.add_argument("--skip_depth_estimation", action="store_true", help="Skip dense depth reconstruction")

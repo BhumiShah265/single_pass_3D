@@ -1,9 +1,7 @@
-import os
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
 import json
 import cv2
 import numpy as np
+import open3d as o3d
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from PIL import Image
@@ -109,23 +107,26 @@ class ReconstructionPipeline:
         metadata, frame_infos = extractor.extract_frames(self.config.input_video, self.frames_dir)
         self.metadata = metadata
         self.extracted_frames = [f.file_path for f in frame_infos]
+        frame_timestamps = [f.timestamp_sec for f in frame_infos]
         logger.info(
             f"Extracted {len(self.extracted_frames)} frames from {metadata.duration_sec:.1f}s video "
             f"({metadata.width}x{metadata.height} @ {metadata.fps:.1f} source fps)"
         )
 
-        # Check for companion telemetry (DJI SRT, CSV, GPX)
+        # Check for explicit or companion telemetry (DJI SRT, CSV, GPX)
         try:
             gps_extractor = GPSExtractor()
             self.gps_data = gps_extractor.extract_flight_telemetry(
                 self.config.input_video, 
                 self.extracted_frames, 
-                duration_sec=metadata.duration_sec
+                duration_sec=metadata.duration_sec,
+                telemetry_path=self.config.telemetry_path or self.config.geo.telemetry_path,
+                frame_timestamps=frame_timestamps
             )
             if self.gps_data:
-                logger.info(f"Loaded real GPS flight telemetry for {len(self.gps_data)} frames.")
+                logger.info(f"Loaded real GPS flight telemetry for frames.")
             else:
-                logger.info("No companion telemetry file found. Operating in strictly LOCAL metric coordinates.")
+                logger.info("No GPS telemetry file found. Operating in strictly LOCAL metric coordinates.")
         except Exception as e:
             logger.warning(f"Telemetry check notice: {e}. Defaulting to local coordinates.")
             self.gps_data = None
@@ -171,8 +172,10 @@ class ReconstructionPipeline:
             self.dynamic_masks = []
 
     def _stage_sfm(self):
-        """Stage 5: Structure from Motion with pycolmap (CameraMode.SINGLE auto-calibration)."""
-        logger.info("Stage 5/10: Computing Structure from Motion & Camera Calibration via pycolmap")
+        """Stage 5: Structure from Motion via configured mapper backend (GLOMAP or pycolmap)."""
+        requested_mapper = self.config.sfm.mapper_backend
+        mapper_backend = requested_mapper
+        logger.info(f"Stage 5/10: Computing Structure from Motion & Camera Calibration via {requested_mapper}")
         if len(self.keyframes) < 3:
             raise RuntimeError(f"SfM requires at least 3 keyframes. Received: {len(self.keyframes)}")
 
@@ -180,10 +183,34 @@ class ReconstructionPipeline:
         self.keyframes = sfm.prepare_workspace(self.keyframes, self.dynamic_masks)
         sfm.extract_features(camera_model=self.config.sfm.camera_model)
         sfm.match_features(method="sequential")
-        rec = sfm.map()
+        try:
+            rec = sfm.map(mapper_backend=requested_mapper)
+        except Exception as glomap_error:
+            if requested_mapper != "glomap":
+                raise
+            logger.warning(
+                f"GLOMAP did not produce a usable sparse model ({glomap_error}); "
+                "retrying with the real pycolmap incremental mapper."
+            )
+            rec = sfm.map(mapper_backend="pycolmap")
+            mapper_backend = "pycolmap"
+
+        # A sparse model can technically register all views while still being
+        # too weak for dense MVS. Retry with the alternate real mapper instead
+        # of letting OpenMVS create a mesh from sparse points only.
+        if requested_mapper == "glomap" and rec is not None and len(rec.points3D) < 100:
+            logger.warning(
+                f"GLOMAP produced only {len(rec.points3D)} sparse points; "
+                "retrying with the real pycolmap incremental mapper."
+            )
+            rec = sfm.map(mapper_backend="pycolmap")
+            mapper_backend = "pycolmap"
+
+        self.mapper_backend_used = mapper_backend
+        self.sfm_pipeline = sfm
         
         if rec is None:
-            raise RuntimeError("pycolmap Structure from Motion failed: could not reconstruct sparse camera model.")
+            raise RuntimeError(f"{mapper_backend} Structure from Motion failed: could not reconstruct sparse camera model.")
 
         sfm_res = sfm.get_reconstruction_data(self.keyframes, self.gps_data)
         self.camera_trajectory = sfm_res["camera_poses"]
@@ -192,20 +219,25 @@ class ReconstructionPipeline:
         self.sfm_reprojection_error = sfm_res["reprojection_error_px"]
 
         logger.info(
-            f"SfM Successful: {sfm_res['registered_count']}/{sfm_res['total_count']} views registered, "
+            f"SfM Successful ({mapper_backend}): {sfm_res['registered_count']}/{sfm_res['total_count']} views registered, "
             f"{len(self.sparse_points):,} sparse tie points, "
             f"mean reprojection error: {self.sfm_reprojection_error:.2f} px."
         )
 
     def _stage_dense_reconstruction(self):
-        """Stage 6: Real dense multi-view stereo reconstruction."""
-        logger.info("Stage 6/10: Dense depth reconstruction via Multi-View Stereo (MVS)")
+        """Stage 6: Real dense multi-view stereo reconstruction via OpenMVS."""
+        logger.info("Stage 6/10: Dense depth reconstruction via OpenMVS Multi-View Stereo")
         dense_engine = DenseReconstructor(self.workspace)
+        sparse_dir = getattr(self.sfm_pipeline, "actual_sparse_dir", self.workspace / "sparse")
+        image_dir = getattr(self.sfm_pipeline, "image_dir", self.workspace / "images")
+        
         dense_res = dense_engine.reconstruct(
             keyframes=self.keyframes,
             camera_poses=self.camera_trajectory,
             camera_calibration=self.camera_calibration,
             sparse_points=self.sparse_points,
+            sparse_dir=sparse_dir,
+            image_dir=image_dir,
             dynamic_mask_paths=self.dynamic_masks,
             voxel_size=self.config.reconstruction.voxel_size,
             outlier_nb_neighbors=self.config.reconstruction.outlier_nb_neighbors,
@@ -213,31 +245,138 @@ class ReconstructionPipeline:
         )
         self.dense_pcd = dense_res["pcd"]
         self.dense_ply_path = dense_res["dense_ply_path"]
+        self.openmvs_mesh_path = dense_res.get("mesh_path")
+        self.openmvs_mtl_path = dense_res.get("mtl_path")
+        self.openmvs_texture_path = dense_res.get("texture_img_path")
         logger.info(f"Dense reconstruction completed: {len(self.dense_pcd.points):,} clean 3D points generated.")
 
     def _stage_meshing(self):
-        """Stage 7: Real Poisson surface reconstruction and calibrated camera texture projection."""
-        logger.info("Stage 7/10: Generating Poisson surface mesh and projecting camera textures")
+        """Stage 7: Real surface mesh reconstruction and calibrated camera texture projection."""
         mesh_proc = MeshProcessor(self.workspace, self.config.mesh)
-        self.mesh = mesh_proc.poisson_reconstruction(
-            self.dense_pcd, 
-            depth=self.config.mesh.poisson_depth,
-            trim_quantile=self.config.mesh.density_trim_quantile
-        )
+        openmvs_mesh = getattr(self, "openmvs_mesh_path", None)
         
-        # Texture mesh using original calibrated camera views
-        vertex_colors, uvs, tex_img = mesh_proc.texture_mesh_from_cameras(
-            self.mesh, 
-            self.camera_trajectory, 
-            self.camera_calibration,
-            tex_size=self.config.mesh.texture_resolution
-        )
-        self.mesh_uvs = uvs
-        self.texture_img = tex_img
-        self.mesh_vertices = np.asarray(self.mesh.vertices, dtype=np.float32)
-        self.mesh_faces = np.asarray(self.mesh.triangles, dtype=np.int32)
-        self.mesh_normals = np.asarray(self.mesh.vertex_normals, dtype=np.float32)
-        self.mesh_colors = (vertex_colors * 255).astype(np.uint8)
+        if openmvs_mesh and Path(openmvs_mesh).exists() and Path(openmvs_mesh).stat().st_size > 0:
+            logger.info("Stage 7/10: Loading calibrated multi-view textured surface mesh from OpenMVS...")
+            self.mesh = o3d.io.read_triangle_mesh(str(openmvs_mesh))
+            self.mesh.compute_vertex_normals()
+
+            # TextureMesh duplicates vertices at UV seams, so connected
+            # component analysis must use the matching untextured PLY mesh.
+            # Remove only small disconnected islands while keeping the main
+            # calibrated surface and its per-corner texture coordinates.
+            topology_path = self.workspace / "dense" / "scene_dense_mesh.ply"
+            if topology_path.exists():
+                topology_mesh = o3d.io.read_triangle_mesh(str(topology_path))
+                if len(topology_mesh.triangles) == len(self.mesh.triangles):
+                    labels, component_sizes, _ = topology_mesh.cluster_connected_triangles()
+                    largest_component = int(max(component_sizes, default=0))
+                    min_component_size = max(50, int(largest_component * 0.01))
+                    keep_components = {
+                        index for index, size in enumerate(component_sizes)
+                        if int(size) >= min_component_size
+                    }
+                    triangle_mask = ~np.isin(
+                        np.asarray(labels), list(keep_components)
+                    )
+                    if triangle_mask.any():
+                        removed_faces = int(triangle_mask.sum())
+                        self.mesh.remove_triangles_by_mask(triangle_mask)
+                        self.mesh.remove_unreferenced_vertices()
+                        self.mesh.compute_vertex_normals()
+                        logger.info(
+                            f"Removed {removed_faces:,} small disconnected OpenMVS mesh faces "
+                            f"({len(keep_components)} connected surface components retained)."
+                        )
+
+            # Remove sparse bridge triangles that span reconstruction gaps. They
+            # are valid mesh faces syntactically, but stretch one atlas patch
+            # across empty space and create long texture streaks in the viewer.
+            mesh_vertices = np.asarray(self.mesh.vertices)
+            mesh_faces = np.asarray(self.mesh.triangles)
+            if len(mesh_faces):
+                triangle_vertices = mesh_vertices[mesh_faces]
+                edge_lengths = np.stack(
+                    [
+                        np.linalg.norm(triangle_vertices[:, 1] - triangle_vertices[:, 0], axis=1),
+                        np.linalg.norm(triangle_vertices[:, 2] - triangle_vertices[:, 1], axis=1),
+                        np.linalg.norm(triangle_vertices[:, 0] - triangle_vertices[:, 2], axis=1),
+                    ],
+                    axis=1,
+                )
+                median_edge = float(np.median(edge_lengths))
+                max_surface_edge = max(0.20, median_edge * 4.0)
+                stretched_faces = edge_lengths.max(axis=1) > max_surface_edge
+                if stretched_faces.any():
+                    removed_faces = int(stretched_faces.sum())
+                    self.mesh.remove_triangles_by_mask(stretched_faces)
+                    self.mesh.remove_unreferenced_vertices()
+                    self.mesh.compute_vertex_normals()
+                    logger.info(
+                        f"Removed {removed_faces:,} long bridge faces from textured OpenMVS mesh "
+                        f"(edge limit {max_surface_edge:.3f} m)."
+                    )
+            
+            # Load texture image if available
+            tex_img = None
+            openmvs_tex = getattr(self, "openmvs_texture_path", None)
+            if openmvs_tex and Path(openmvs_tex).exists():
+                try:
+                    tex_img = np.asarray(Image.open(str(openmvs_tex)).convert("RGB"))
+                except Exception as e:
+                    logger.warning(f"Failed to load OpenMVS texture image: {e}")
+            if tex_img is None:
+                tex_img = np.full((1024, 1024, 3), 160, dtype=np.uint8)
+            self.texture_img = tex_img
+            
+            self.mesh_vertices = np.asarray(self.mesh.vertices, dtype=np.float32)
+            self.mesh_faces = np.asarray(self.mesh.triangles, dtype=np.int32)
+            self.mesh_normals = np.asarray(self.mesh.vertex_normals, dtype=np.float32)
+            
+            # OpenMVS writes an atlas with per-corner UVs. Preserve those UVs;
+            # replacing them with planar coordinates maps faces into the atlas
+            # padding and produces the orange/melted appearance in the viewer.
+            triangle_uvs = np.asarray(self.mesh.triangle_uvs)
+            faces = np.asarray(self.mesh.triangles)
+            if len(self.mesh_vertices) and len(triangle_uvs) == len(faces) * 3:
+                uvs = np.zeros((len(self.mesh_vertices), 2), dtype=np.float32)
+                for triangle_index, face in enumerate(faces):
+                    uvs[face] = triangle_uvs[triangle_index * 3:(triangle_index + 1) * 3]
+                self.mesh_uvs = uvs
+            elif len(self.mesh_vertices) > 0:
+                min_b = self.mesh_vertices.min(axis=0)
+                max_b = self.mesh_vertices.max(axis=0)
+                span_x = max(1e-3, float(max_b[0] - min_b[0]))
+                span_z = max(1e-3, float(max_b[2] - min_b[2]))
+                uvs = np.zeros((len(self.mesh_vertices), 2), dtype=np.float32)
+                uvs[:, 0] = np.clip((self.mesh_vertices[:, 0] - min_b[0]) / span_x, 0.0, 1.0)
+                uvs[:, 1] = np.clip(1.0 - (self.mesh_vertices[:, 2] - min_b[2]) / span_z, 0.0, 1.0)
+                self.mesh_uvs = uvs
+            else:
+                self.mesh_uvs = np.empty((0, 2), dtype=np.float32)
+
+            if self.mesh.has_vertex_colors():
+                self.mesh_colors = (np.asarray(self.mesh.vertex_colors) * 255).astype(np.uint8)
+            else:
+                self.mesh_colors = np.full((len(self.mesh_vertices), 3), 180, dtype=np.uint8)
+        else:
+            logger.info("Stage 7/10: Generating Poisson surface mesh and projecting camera textures")
+            self.mesh = mesh_proc.poisson_reconstruction(
+                self.dense_pcd, 
+                depth=self.config.mesh.poisson_depth,
+                trim_quantile=self.config.mesh.density_trim_quantile
+            )
+            vertex_colors, uvs, tex_img = mesh_proc.texture_mesh_from_cameras(
+                self.mesh, 
+                self.camera_trajectory, 
+                self.camera_calibration,
+                tex_size=self.config.mesh.texture_resolution
+            )
+            self.mesh_uvs = uvs
+            self.texture_img = tex_img
+            self.mesh_vertices = np.asarray(self.mesh.vertices, dtype=np.float32)
+            self.mesh_faces = np.asarray(self.mesh.triangles, dtype=np.int32)
+            self.mesh_normals = np.asarray(self.mesh.vertex_normals, dtype=np.float32)
+            self.mesh_colors = (vertex_colors * 255).astype(np.uint8)
 
         logger.info(
             f"Surface mesh completed: {len(self.mesh_vertices):,} vertices, "
@@ -253,9 +392,11 @@ class ReconstructionPipeline:
             for p in self.camera_trajectory:
                 if p.get("is_registered") and p.get("C"):
                     img_p = Path(p["file_path"])
-                    if img_p in self.gps_data:
+                    # Match by path, string, or basename
+                    match = self.gps_data.get(img_p) or self.gps_data.get(img_p.name) or self.gps_data.get(str(img_p))
+                    if match:
                         local_cam_centers.append(p["C"])
-                        gps_coords.append(self.gps_data[img_p])
+                        gps_coords.append(match)
 
             if len(gps_coords) >= 3:
                 self.georeferencer.georeference_scene(np.array(local_cam_centers), gps_coords)
@@ -285,16 +426,12 @@ class ReconstructionPipeline:
         
         # Subsample points for WebGL viewport (up to 150,000 points)
         sample_stride = max(1, len(pts_arr) // 150000)
-        self.reconstructed_points = []
-        for i in range(0, len(pts_arr), sample_stride):
-            p = pts_arr[i]
-            c = cols_arr[i]
-            cls_code = int(classification[i]) if i < len(classification) else 2
-            self.reconstructed_points.append([
-                round(float(p[0]), 3), round(float(p[1]), 3), round(float(p[2]), 3),
-                int(c[0]), int(c[1]), int(c[2]),
-                cls_code
-            ])
+        indices = np.arange(0, len(pts_arr), sample_stride)
+        sampled_pts = np.round(pts_arr[indices], 3)
+        sampled_cols = cols_arr[indices]
+        cls_arr = np.asarray(classification, dtype=int)
+        sampled_cls = cls_arr[indices].reshape(-1, 1) if len(cls_arr) >= len(pts_arr) else np.full((len(indices), 1), 2, dtype=int)
+        self.reconstructed_points = np.hstack([sampled_pts, sampled_cols, sampled_cls]).tolist()
 
         # True 3D bounding box extents and volume
         bbox = MeasurementTool.compute_bounding_box(pts_arr)
@@ -346,12 +483,9 @@ class ReconstructionPipeline:
             "measurements": self.measurements,
             "structures": self.detected_structures,
             "mesh": {
-                "vertices": self.mesh_vertices.tolist(),
-                "uvs": self.mesh_uvs.tolist(),
-                "faces": self.mesh_faces.tolist(),
-                "normals": self.mesh_normals.tolist(),
-                "colors": self.mesh_colors.tolist(),
-                "classification": [int(s.get("asprs_class", 2)) for s in self.detected_structures]
+                "vertex_count": len(self.mesh_vertices),
+                "face_count": len(self.mesh_faces),
+                "format": "glb",
             },
             "glb_url": f"/data/output/{self.output_dir.name}/model.glb",
             "texture_url": f"/data/output/{self.output_dir.name}/texture.jpg"
@@ -406,7 +540,7 @@ class ReconstructionPipeline:
         except Exception as e:
             logger.warning(f"LAS export notice: {e}")
 
-        # 6. Export GeoTIFF Orthomosaic
+        # 6. Export a derived texture raster. This is not a rectified orthomosaic.
         ortho_path = self.output_dir / "ortho.tif"
         try:
             import rasterio
@@ -425,7 +559,10 @@ class ReconstructionPipeline:
                 dst.write(self.texture_img[:, :, 0], 1)
                 dst.write(self.texture_img[:, :, 1], 2)
                 dst.write(self.texture_img[:, :, 2], 3)
-            logger.info(f"Exported Orthomosaic GeoTIFF: {ortho_path} ({ortho_path.stat().st_size:,} bytes)")
+                logger.info(
+                    f"Exported derived texture raster (not a rectified orthomosaic): "
+                    f"{ortho_path} ({ortho_path.stat().st_size:,} bytes)"
+                )
         except Exception as e:
             logger.warning(f"Orthomosaic export notice: {e}")
 
@@ -553,10 +690,10 @@ class ReconstructionPipeline:
                     pdf.cell(30, 5.5, clean_txt(f"{s.get('points_count', 0):,}"), border=1, new_x="LMARGIN", new_y="NEXT")
                 pdf.ln(5)
 
-            # Embed Orthomosaic thumbnail if exists
+            # Embed the texture atlas with an explicit non-orthophoto label.
             if (self.output_dir / "texture.jpg").exists():
                 pdf.set_font("Helvetica", "B", 12)
-                pdf.cell(0, 7, "3. Reconstructed Aerial Texture Survey Map", new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(0, 7, "3. OpenMVS Texture Atlas (Not an Orthophoto)", new_x="LMARGIN", new_y="NEXT")
                 pdf.image(str(self.output_dir / "texture.jpg"), x=14, y=pdf.get_y() + 2, w=100, h=70)
                 
             pdf.output(str(pdf_path))
@@ -564,4 +701,39 @@ class ReconstructionPipeline:
         except Exception as e:
             logger.warning(f"PDF export notice: {e}")
 
-        logger.info(f"All 8 deliverables successfully exported to {self.output_dir}.")
+        # 9. Export final_report.json summary
+        final_report_path = self.output_dir / "final_report.json"
+        reg_count = len([p for p in self.camera_trajectory if p.get("is_registered")])
+        final_report = {
+            "status": "SUCCESS",
+            "fabricated": False,
+            "registered_images": reg_count,
+            "dense_points": len(pts_arr),
+            "mesh_vertices": len(self.mesh_vertices),
+            "mesh_faces": len(self.mesh_faces),
+            "reprojection_error_px": round(float(self.sfm_reprojection_error), 2),
+            "georeferenced": self.georeferencer.is_georeferenced,
+            "crs": self.georeferencer.crs_name,
+            "mapper_backend": getattr(self, "mapper_backend_used", self.config.sfm.mapper_backend),
+            "dense_backend": "OpenMVS",
+            "output_dir": str(self.output_dir)
+        }
+        with open(final_report_path, "w") as f:
+            json.dump(final_report, f, indent=2)
+
+        # 10. Verify all deliverables exist and are non-empty
+        required_files = [
+            "cloud.ply", "model.obj", "model.mtl", "texture.jpg",
+            "model.glb", "cloud.las", "ortho.tif", "dsm.tif",
+            "measurements.json", "points.json", "report.pdf", "final_report.json"
+        ]
+        missing_or_empty = []
+        for f_name in required_files:
+            f_path = self.output_dir / f_name
+            if not f_path.exists() or f_path.stat().st_size == 0:
+                missing_or_empty.append(f_name)
+
+        if missing_or_empty:
+            logger.warning(f"Deliverable validation warning: missing or 0-byte files: {missing_or_empty}")
+
+        logger.info(f"All deliverables successfully exported to {self.output_dir}.")

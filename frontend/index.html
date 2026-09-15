@@ -795,8 +795,8 @@
       function init3D() {
         // Scene & Neutral Photogrammetry Studio Atmosphere
         scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0f16);
-        scene.fog = new THREE.FogExp2(0x0a0f16, 0.002);
+        scene.background = new THREE.Color(0x111925);
+        scene.fog = new THREE.FogExp2(0x111925, 0.00035);
 
         // Camera
         const aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
@@ -808,7 +808,7 @@
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.1;
+        renderer.toneMappingExposure = 1.35;
         if (renderer.outputColorSpace !== undefined) {
           renderer.outputColorSpace = THREE.SRGBColorSpace;
         }
@@ -825,17 +825,19 @@
         controls.target.set(0, 2, 0);
 
         // Natural Daylight & Ambient Illumination
-        const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x1e293b, 0.95);
+        const hemiLight = new THREE.HemisphereLight(0xf1f5f9, 0x475569, 1.35);
         scene.add(hemiLight);
 
-        const sunLight = new THREE.DirectionalLight(0xfffaed, 1.35);
+        const sunLight = new THREE.DirectionalLight(0xfffaed, 1.8);
         sunLight.position.set(45, 85, 45);
         sunLight.castShadow = true;
         scene.add(sunLight);
 
-        const skyFillLight = new THREE.DirectionalLight(0x94a3b8, 0.45);
+        const skyFillLight = new THREE.DirectionalLight(0xcbd5e1, 0.8);
         skyFillLight.position.set(-45, 60, -45);
         scene.add(skyFillLight);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.25));
 
         // Subtle Ground Datum (soft, non-intrusive)
         gridHelper = new THREE.GridHelper(100, 40, 0x1e293b, 0x0f172a);
@@ -871,6 +873,34 @@
         camera.position.set(cx + dist * 0.65, cy + dist * 0.68, cz + dist * 0.72);
         camera.lookAt(cx, cy + 1.0, cz);
         controls.update();
+      }
+
+      function loadTexturedGLB(url) {
+        if (!url || !window.THREE || !THREE.GLTFLoader) return;
+        const loader = new THREE.GLTFLoader();
+        const cacheBustedUrl = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+        loader.load(cacheBustedUrl, (gltf) => {
+          if (photoMesh) scene.remove(photoMesh);
+          photoMesh = gltf.scene;
+          photoMesh.traverse((node) => {
+            if (node.isMesh && node.material) {
+              node.material.side = THREE.DoubleSide;
+              node.material.envMapIntensity = 1.35;
+              node.material.roughness = 0.82;
+              node.material.metalness = 0.0;
+              if (node.material.emissive) {
+                node.material.emissive.setRGB(0.025, 0.03, 0.035);
+                node.material.emissiveIntensity = 0.14;
+              }
+              node.material.needsUpdate = true;
+            }
+          });
+          scene.add(photoMesh);
+          fitCameraToScene();
+          setDisplayMode(currentDisplayMode);
+        }, undefined, (err) => {
+          console.warn('Textured GLB loading failed:', err);
+        });
       }
 
       // Builds the full continuous textured 3D photogrammetric mesh, point cloud & trajectory
@@ -1158,6 +1188,9 @@
             trajectoryLine.add(frustum);
           }
           scene.add(trajectoryLine);
+          // Keep the reconstructed surface unobstructed by camera diagnostics;
+          // the Trajectory control still reveals the calibrated flight path.
+          trajectoryLine.visible = false;
         }
 
         fitCameraToScene();
@@ -1916,6 +1949,7 @@
             const ptsData = await ptsRes.json();
             if (ptsData.points && ptsData.points.length > 0) {
               buildFinal3DGeometry(ptsData);
+              loadTexturedGLB(ptsData.glb_url || `/data/output/${currentJobId}/model.glb`);
             }
           }
         } catch (e) {
@@ -1937,7 +1971,7 @@
         document.getElementById('vpLiveStatusIndicator').textContent = '● Photogrammetric 3D Active';
         document.getElementById('vpLiveStatusIndicator').className = 'text-emerald-400 font-semibold';
 
-        jobStatusMessage.textContent = 'All 10 stages completed successfully! 3D Model, Point Cloud and Orthophoto ready.';
+         jobStatusMessage.textContent = 'All 10 stages completed successfully! 3D Model, Point Cloud and derived rasters ready.';
         exportStatusHint.textContent = 'All 8 deliverables ready for download';
         exportStatusHint.className = 'text-[10px] font-mono text-emerald-400 font-semibold';
 
@@ -2102,32 +2136,33 @@
             document.getElementById('diagJobIdBadge').textContent = currentJobId.substring(0, 8);
             document.getElementById('diagDimensions').textContent = info.frame_width ? `${info.frame_width} × ${info.frame_height}` : 'Video Frame';
             
-            const skyBadge = document.getElementById('diagSkyBadge');
-            if (info.has_sky) {
-              skyBadge.textContent = `Sky Detected (${info.sky_area_percent}% frame)`;
-              skyBadge.className = 'px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-500/40 text-[10px] font-mono';
-            } else {
-              skyBadge.textContent = 'No Sky (Full Ground View)';
-              skyBadge.className = 'px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 text-[10px] font-mono';
-            }
+            const maskBadge = document.getElementById('diagSkyBadge');
+            maskBadge.textContent = data.mask_overlay_url ? 'Dynamic mask available' : 'No mask preview';
+            maskBadge.className = data.mask_overlay_url
+              ? 'px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 text-[10px] font-mono'
+              : 'px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-600/40 text-[10px] font-mono';
 
-            document.getElementById('diagHorizonCutoff').textContent = info.horizon_y_px ? `Cutoff at Y=${info.horizon_y_px}px` : 'Nadir (0px cutoff)';
-            document.getElementById('diagParallaxRange').textContent = info.parallax_max ? `0.00 – ${info.parallax_max} (Optical Flow)` : 'Real-time Disparity';
+            document.getElementById('diagHorizonCutoff').textContent = 'Not estimated';
+            document.getElementById('diagParallaxRange').textContent = 'See SfM/MVS metrics';
 
             // Set images with cache-busting timestamp
             const ts = Date.now();
             const setImg = (id, url) => {
               const el = document.getElementById(id);
-              if (el && url) {
+              if (!el) return;
+              if (url) {
                 el.src = `${url}?t=${ts}`;
                 el.parentElement.onclick = () => window.open(`${url}?t=${ts}`, '_blank');
+              } else {
+                el.removeAttribute('src');
+                el.alt = 'Preview unavailable for this job';
               }
             };
 
-            setImg('diagImgKeyframe', data.source_keyframe_url || `/data/output/${currentJobId}/diagnostic_source_keyframe.jpg`);
-            setImg('diagImgSkyRemoved', data.sky_removed_url || `/data/output/${currentJobId}/diagnostic_sky_removed.jpg`);
-            setImg('diagImgGroundOrtho', data.ground_ortho_url || `/data/output/${currentJobId}/diagnostic_ground_ortho.jpg`);
-            setImg('diagImgElevation', data.realtime_elevation_url || `/data/output/${currentJobId}/diagnostic_realtime_elevation.jpg`);
+            setImg('diagImgKeyframe', data.source_keyframe_url);
+            setImg('diagImgSkyRemoved', data.mask_overlay_url);
+            setImg('diagImgGroundOrtho', data.texture_atlas_url);
+            setImg('diagImgElevation', data.dsm_url);
           }
         } catch (e) {
           console.warn('Error fetching formation diagnostics:', e);
@@ -2183,15 +2218,15 @@
           <span id="diagDimensions" class="text-slate-200 font-semibold">-</span>
         </div>
         <div class="flex items-center gap-1.5 text-slate-400">
-          <span class="text-slate-500">SKY STATUS:</span>
+            <span class="text-slate-500">MASK STATUS:</span>
           <span id="diagSkyBadge" class="px-2 py-0.5 rounded bg-slate-800 text-slate-300">-</span>
         </div>
         <div class="flex items-center gap-1.5 text-slate-400">
-          <span class="text-slate-500">HORIZON CUTOFF:</span>
+            <span class="text-slate-500">CAPTURE NOTE:</span>
           <span id="diagHorizonCutoff" class="text-amber-300 font-semibold">-</span>
         </div>
         <div class="flex items-center gap-1.5 text-slate-400">
-          <span class="text-slate-500">OPTICAL FLOW PARALLAX:</span>
+            <span class="text-slate-500">GEOMETRY NOTE:</span>
           <span id="diagParallaxRange" class="text-tech-cyan font-semibold">-</span>
         </div>
       </div>
@@ -2214,49 +2249,49 @@
           <p class="text-[10px] text-slate-400">Raw drone flight frame extracted at optimal baseline stride for 3D multi-view geometry.</p>
         </div>
 
-        <!-- Card 2: Sky Removal -->
+        <!-- Card 2: Dynamic Mask Overlay -->
         <div class="bg-app-bg border border-app-border rounded-lg p-3 flex flex-col gap-2 group cursor-pointer hover:border-amber-500/50 transition-colors">
           <div class="flex items-center justify-between">
             <span class="font-bold text-[11px] text-amber-300 flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-              2. Sky Detection &amp; Horizon Cutoff
+              2. Dynamic Mask Overlay
             </span>
             <span class="text-[9px] font-mono text-slate-500 group-hover:text-amber-400">Click to enlarge ↗</span>
           </div>
           <div class="h-48 sm:h-56 bg-black rounded overflow-hidden flex items-center justify-center border border-app-border/60">
-            <img id="diagImgSkyRemoved" src="" alt="Sky Removal Diagnostic" class="max-h-full max-w-full object-contain" />
+            <img id="diagImgSkyRemoved" src="" alt="Dynamic Mask Overlay" class="max-h-full max-w-full object-contain" />
           </div>
-          <p class="text-[10px] text-slate-400">Automated edge gradient analysis detects open sky and excludes it at the horizon boundary, preventing sky mesh distortion.</p>
+          <p class="text-[10px] text-slate-400">Real masking output overlaid on the source frame. Sky removal is not inferred unless a dedicated mask exists.</p>
         </div>
 
-        <!-- Card 3: Ground Orthophoto -->
+        <!-- Card 3: OpenMVS Texture Atlas -->
         <div class="bg-app-bg border border-app-border rounded-lg p-3 flex flex-col gap-2 group cursor-pointer hover:border-emerald-500/50 transition-colors">
           <div class="flex items-center justify-between">
             <span class="font-bold text-[11px] text-emerald-300 flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-              3. Rectified Ground Orthophoto
+              3. OpenMVS Texture Atlas
             </span>
             <span class="text-[9px] font-mono text-slate-500 group-hover:text-emerald-400">Click to enlarge ↗</span>
           </div>
           <div class="h-48 sm:h-56 bg-black rounded overflow-hidden flex items-center justify-center border border-app-border/60">
-            <img id="diagImgGroundOrtho" src="" alt="Rectified Ground Ortho" class="max-h-full max-w-full object-contain" />
+            <img id="diagImgGroundOrtho" src="" alt="OpenMVS Texture Atlas" class="max-h-full max-w-full object-contain" />
           </div>
-          <p class="text-[10px] text-slate-400">Pure ground surface with zero sky, perspective-rectified and CLAHE-contrast enhanced for the 3D model texture.</p>
+          <p class="text-[10px] text-slate-400">The atlas used by the textured mesh. It is not a georeferenced or rectified orthophoto.</p>
         </div>
 
-        <!-- Card 4: Elevation Heatmap -->
+        <!-- Card 4: Derived DSM Preview -->
         <div class="bg-app-bg border border-app-border rounded-lg p-3 flex flex-col gap-2 group cursor-pointer hover:border-purple-500/50 transition-colors">
           <div class="flex items-center justify-between">
             <span class="font-bold text-[11px] text-purple-300 flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
-              4. Real-Time Parallax Elevation Map
+              4. Derived DSM Preview
             </span>
             <span class="text-[9px] font-mono text-slate-500 group-hover:text-purple-400">Click to enlarge ↗</span>
           </div>
           <div class="h-48 sm:h-56 bg-black rounded overflow-hidden flex items-center justify-center border border-app-border/60">
-            <img id="diagImgElevation" src="" alt="Real-Time Elevation Heatmap" class="max-h-full max-w-full object-contain" />
+            <img id="diagImgElevation" src="" alt="Derived DSM Preview" class="max-h-full max-w-full object-contain" />
           </div>
-          <p class="text-[10px] text-slate-400">Dense optical flow parallax across video keyframe pairs driving real 3D heights without synthetic formulas.</p>
+          <p class="text-[10px] text-slate-400">Colorized preview of the exported DSM raster derived from reconstructed points.</p>
         </div>
 
       </div>

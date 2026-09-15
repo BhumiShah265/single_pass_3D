@@ -75,6 +75,20 @@ class VideoExtractor:
         finally:
             cap.release()
 
+    def validate_capture_profile(self, metadata: VideoMetadata) -> None:
+        """Reject formats that cannot represent the configured aerial survey profile."""
+        if self.config.capture_profile != "aerial_drone":
+            return
+
+        aspect_ratio = metadata.width / max(1, metadata.height)
+        if aspect_ratio < 1.2:
+            raise ValueError(
+                "Unsupported capture profile: aerial_drone requires landscape video "
+                f"(got {metadata.width}x{metadata.height}, aspect ratio {aspect_ratio:.2f}). "
+                "Use a horizontal drone flight video with forward or nadir overlap; "
+                "portrait street/handheld video is not an aerial survey input."
+            )
+
     def extract_frames(self, video_path: str | Path, output_dir: str | Path) -> tuple[VideoMetadata, List[FrameInfo]]:
         """
         Extract frames from the video at the configured target FPS.
@@ -92,6 +106,7 @@ class VideoExtractor:
 
         logger.info(f"Extracting metadata from {video_path}")
         metadata = self.get_metadata(video_path)
+        self.validate_capture_profile(metadata)
         
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():

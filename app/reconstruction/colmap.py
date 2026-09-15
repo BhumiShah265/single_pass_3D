@@ -3,6 +3,9 @@ import shutil
 from pathlib import Path
 from typing import Optional, Union, List, Dict, Tuple, Any
 import numpy as np
+# Load Open3D before PyTorch/pycolmap to avoid duplicate libomp initialization
+# on macOS when the two native extension stacks are imported in one process.
+import open3d  # noqa: F401
 import pycolmap
 
 from app.config import DEVICE, logger
@@ -97,32 +100,150 @@ class SfMPipeline:
             pairing_options.overlap = 8
             pycolmap.match_sequential(self.database_path, pairing_options=pairing_options)
             
-    def map(self) -> Optional[pycolmap.Reconstruction]:
+    def detect_sparse_model_dir(self) -> Path:
         """
-        Run sparse reconstruction (incremental mapping) and bundle adjustment using pycolmap.
+        Detect the actual valid sparse-model directory (supporting workspace/sparse or workspace/sparse/0).
         """
-        logger.info("Running pycolmap incremental mapping & bundle adjustment...")
-        try:
-            maps = pycolmap.incremental_mapping(
-                database_path=self.database_path,
-                image_path=self.image_dir,
-                output_path=self.sparse_dir
-            )
-            if maps and len(maps) > 0:
-                self.best_model = max(maps.values(), key=lambda m: m.num_images())
-                logger.info(
-                    f"SfM reconstruction successful: {self.best_model.num_images()} registered images, "
-                    f"{len(self.best_model.points3D)} 3D sparse points, "
-                    f"mean reprojection error: {self.best_model.compute_mean_reprojection_error():.2f} px"
-                )
-                self.best_model.write(str(self.sparse_dir))
-                return self.best_model
-            else:
-                logger.error("pycolmap incremental mapping produced 0 registered models.")
-        except Exception as e:
-            logger.error(f"pycolmap incremental mapping failed: {e}")
+        candidates = [
+            self.sparse_dir / "0",
+            self.sparse_dir
+        ]
+        for cand in candidates:
+            if cand.exists() and (
+                (cand / "cameras.bin").exists() or 
+                (cand / "cameras.txt").exists() or
+                (cand / "images.bin").exists() or
+                (cand / "images.txt").exists()
+            ):
+                return cand
+        return self.sparse_dir
 
-        return None
+    def prepare_glomap_database(self) -> Path:
+        """Create a private database copy compatible with this GLOMAP build.
+
+        The bundled COLMAP revision in the archived GLOMAP source expects the
+        legacy pose_priors schema. pycolmap 4.2 creates the newer schema. The
+        table is empty for normal video SfM, so only the copy is adapted; the
+        source database is never modified.
+        """
+        import sqlite3
+
+        glomap_db = self.workspace_dir / "database_glomap.db"
+        if glomap_db.exists():
+            glomap_db.unlink()
+
+        with sqlite3.connect(str(self.database_path)) as source:
+            with sqlite3.connect(str(glomap_db)) as target:
+                source.backup(target)
+
+        with sqlite3.connect(str(glomap_db)) as conn:
+            columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(pose_priors)")
+            }
+            if "image_id" not in columns:
+                prior_count = conn.execute(
+                    "SELECT COUNT(*) FROM pose_priors"
+                ).fetchone()[0]
+                if prior_count:
+                    raise RuntimeError(
+                        "GLOMAP database schema is incompatible and contains "
+                        f"{prior_count} pose priors; refusing to discard them."
+                    )
+                conn.execute("DROP INDEX IF EXISTS pose_prior_data_assignment")
+                conn.execute("DROP TABLE IF EXISTS pose_priors")
+                conn.execute(
+                    "CREATE TABLE pose_priors ("
+                    "image_id INTEGER PRIMARY KEY NOT NULL,"
+                    "position BLOB,"
+                    "coordinate_system INTEGER NOT NULL DEFAULT 0,"
+                    "position_covariance BLOB,"
+                    "FOREIGN KEY(image_id) REFERENCES images(image_id) ON DELETE CASCADE"
+                    ")"
+                )
+                conn.commit()
+        return glomap_db
+
+    def map(self, mapper_backend: str = "glomap") -> Optional[pycolmap.Reconstruction]:
+        """
+        Run sparse reconstruction and bundle adjustment using GLOMAP (default) or pycolmap.
+        """
+        import subprocess
+        from app.config import find_glomap_binary
+
+        if mapper_backend == "glomap":
+            glomap_bin = find_glomap_binary()
+            if not glomap_bin:
+                raise RuntimeError(
+                    "GLOMAP executable not found. Ensure GLOMAP is built in .local/bin/glomap "
+                    "or installed on system PATH."
+                )
+            
+            glomap_database = self.prepare_glomap_database()
+            logger.info(f"Using GLOMAP-compatible database copy: {glomap_database}")
+
+            logger.info(f"Running GLOMAP global SfM mapper using: {glomap_bin}")
+            cmd = [
+                glomap_bin, "mapper",
+                "--database_path", str(glomap_database),
+                "--image_path", str(self.image_dir),
+                "--output_path", str(self.sparse_dir)
+            ]
+            
+            try:
+                res = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                logger.info(f"GLOMAP completed successfully: {res.stdout[:200]}")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"GLOMAP mapper failed with returncode {e.returncode}: {e.stderr}")
+                raise RuntimeError(f"GLOMAP mapper execution failed: {e.stderr}") from e
+
+            sparse_model_dir = self.detect_sparse_model_dir()
+            logger.info(f"Detected GLOMAP sparse model directory: {sparse_model_dir}")
+            
+            try:
+                rec = pycolmap.Reconstruction(str(sparse_model_dir))
+                if rec.num_images() > 0:
+                    self.best_model = rec
+                    self.actual_sparse_dir = sparse_model_dir
+                    logger.info(
+                        f"GLOMAP SfM successful: {rec.num_images()} registered images, "
+                        f"{len(rec.points3D)} 3D sparse points, "
+                        f"mean reprojection error: {rec.compute_mean_reprojection_error():.2f} px"
+                    )
+                    return self.best_model
+                else:
+                    raise RuntimeError(f"GLOMAP generated 0 registered views in {sparse_model_dir}")
+            except Exception as e:
+                raise RuntimeError(f"Failed to load GLOMAP reconstruction from {sparse_model_dir}: {e}") from e
+
+        else:
+            logger.info("Running pycolmap incremental mapping & bundle adjustment...")
+            try:
+                pycolmap_output = self.sparse_dir / "pycolmap_models"
+                if pycolmap_output.exists():
+                    shutil.rmtree(pycolmap_output)
+                pycolmap_output.mkdir(parents=True, exist_ok=True)
+                maps = pycolmap.incremental_mapping(
+                    database_path=self.database_path,
+                    image_path=self.image_dir,
+                    output_path=pycolmap_output
+                )
+                if maps and len(maps) > 0:
+                    best_key, self.best_model = max(
+                        maps.items(), key=lambda item: item[1].num_images()
+                    )
+                    self.actual_sparse_dir = pycolmap_output / str(best_key)
+                    logger.info(
+                        f"pycolmap SfM successful: {self.best_model.num_images()} registered images, "
+                        f"{len(self.best_model.points3D)} 3D sparse points, "
+                        f"mean reprojection error: {self.best_model.compute_mean_reprojection_error():.2f} px"
+                    )
+                    return self.best_model
+                else:
+                    logger.error("pycolmap incremental mapping produced 0 registered models.")
+            except Exception as e:
+                logger.error(f"pycolmap incremental mapping failed: {e}")
+
+            return None
 
     def get_reconstruction_data(
         self, 

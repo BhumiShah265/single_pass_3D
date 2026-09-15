@@ -1,5 +1,4 @@
 import os
-import shutil
 from pathlib import Path
 from typing import Union, List, Dict, Tuple, Optional, Any
 import cv2
@@ -37,13 +36,12 @@ class MeshProcessor:
         logger.info(f"Running Poisson surface reconstruction (depth={eff_depth})...")
         
         target_pcd = pcd
-        if len(pcd.points) > 250000:
-            target_pcd = pcd.voxel_down_sample(0.20)
+        if len(pcd.points) > 50000:
+            target_pcd = pcd.voxel_down_sample(0.25)
             logger.info(f"Voxel-downsampled point cloud to {len(target_pcd.points):,} points for robust Poisson surface extraction.")
             
         if not target_pcd.has_normals():
-            target_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.6, max_nn=30))
-            target_pcd.orient_normals_consistent_tangent_plane(15)
+            target_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.6, max_nn=20))
 
         mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(target_pcd, depth=eff_depth)
         
@@ -63,7 +61,7 @@ class MeshProcessor:
         mesh.compute_vertex_normals()
 
         # Decimate if target face count exceeded
-        target_faces = 250000
+        target_faces = 100000
         if len(mesh.triangles) > target_faces:
             mesh = mesh.simplify_quadric_decimation(target_number_of_triangles=target_faces)
             mesh.compute_vertex_normals()
@@ -95,11 +93,6 @@ class MeshProcessor:
         K = camera_calibration.get("K")
         if K is not None:
             K = np.asarray(K, dtype=np.float64)
-        # NOTE: if SfM recovered no real calibrated intrinsics, we do NOT invent a
-        # camera (no fabricating focal=1500 / principal (960,540)): texture/vertex
-        # projection simply is skipped and the mesh is delivered uncolored with an
-        # honest status string. Projecting image colours through a made-up K would
-        # mint fabricated "true-colour textured model" geometry.
 
         for p in camera_poses:
             if p.get("is_registered", False) and p.get("R") is not None and p.get("C") is not None:
@@ -115,96 +108,93 @@ class MeshProcessor:
         vertex_colors = np.full((n_verts, 3), 0.7, dtype=np.float64)
         best_angles = np.full(n_verts, -1.0, dtype=np.float64)
 
-        # Cache loaded images to avoid re-reading
-        img_cache = {}
-        # Select up to 16 views distributed across the sequence
-        view_indices = np.linspace(0, len(views) - 1, min(16, len(views))).astype(int)
-        sampled_views = [views[idx] for idx in view_indices]
+        if len(views) > 0 and K is not None:
+            # Cache loaded images to avoid re-reading
+            img_cache = {}
+            # Select up to 16 views distributed across the sequence
+            view_indices = np.linspace(0, len(views) - 1, min(16, len(views))).astype(int)
+            sampled_views = [views[idx] for idx in view_indices]
 
-        for v in sampled_views:
-            v_path = str(v["path"])
-            if v_path not in img_cache:
-                bgr = cv2.imread(v_path)
-                if bgr is not None:
-                    img_cache[v_path] = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            for v in sampled_views:
+                v_path = str(v["path"])
+                if v_path not in img_cache:
+                    bgr = cv2.imread(v_path)
+                    if bgr is not None:
+                        img_cache[v_path] = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-            rgb_img = img_cache.get(v_path)
-            if rgb_img is None:
-                continue
+                rgb_img = img_cache.get(v_path)
+                if rgb_img is None:
+                    continue
 
-            h_img, w_img = rgb_img.shape[:2]
-            R, t, C = v["R"], v["t"], v["C"]
+                h_img, w_img = rgb_img.shape[:2]
+                R, t, C = v["R"], v["t"], v["C"]
 
-            # Transform vertices to camera frame: p_cam = R * V + t
-            pts_cam = (vertices @ R.T) + t.reshape(1, 3)
-            z_cam = pts_cam[:, 2]
+                # Transform vertices to camera frame: p_cam = R * V + t
+                pts_cam = (vertices @ R.T) + t.reshape(1, 3)
+                z_cam = pts_cam[:, 2]
 
-            # In front of camera
-            front_mask = z_cam > 0.5
-            front_indices = np.where(front_mask)[0]
-            if len(front_indices) == 0:
-                continue
+                # In front of camera
+                front_mask = z_cam > 0.5
+                front_indices = np.where(front_mask)[0]
+                if len(front_indices) == 0:
+                    continue
 
-            # Project to image plane: u = fx * (x/z) + cx, v = fy * (y/z) + cy
-            p_sub = pts_cam[front_indices]
-            z_sub = z_cam[front_indices]
-            u_px = (K[0, 0] * (p_sub[:, 0] / z_sub) + K[0, 2]).astype(int)
-            v_px = (K[1, 1] * (p_sub[:, 1] / z_sub) + K[1, 2]).astype(int)
+                # Project to image plane: u = fx * (x/z) + cx, v = fy * (y/z) + cy
+                p_sub = pts_cam[front_indices]
+                z_sub = z_cam[front_indices]
+                u_px = (K[0, 0] * (p_sub[:, 0] / z_sub) + K[0, 2]).astype(int)
+                v_px = (K[1, 1] * (p_sub[:, 1] / z_sub) + K[1, 2]).astype(int)
 
-            # Within image boundaries
-            valid_uv = (u_px >= 0) & (u_px < w_img) & (v_px >= 0) & (v_px < h_img)
-            valid_indices = front_indices[valid_uv]
-            u_valid = u_px[valid_uv]
-            v_valid = v_px[valid_uv]
+                # Within image boundaries
+                valid_uv = (u_px >= 0) & (u_px < w_img) & (v_px >= 0) & (v_px < h_img)
+                valid_indices = front_indices[valid_uv]
+                u_valid = u_px[valid_uv]
+                v_valid = v_px[valid_uv]
 
-            if len(valid_indices) == 0:
-                continue
+                if len(valid_indices) == 0:
+                    continue
 
-            # Compute viewing angle: dot product between surface normal and camera viewing ray
-            ray_dirs = vertices[valid_indices] - C
-            ray_lens = np.linalg.norm(ray_dirs, axis=1, keepdims=True)
-            ray_dirs = ray_dirs / np.maximum(ray_lens, 1e-6)
+                # Compute viewing angle: dot product between surface normal and camera viewing ray
+                ray_dirs = vertices[valid_indices] - C
+                ray_lens = np.linalg.norm(ray_dirs, axis=1, keepdims=True)
+                ray_dirs = ray_dirs / np.maximum(ray_lens, 1e-6)
 
-            cos_angles = -np.sum(normals[valid_indices] * ray_dirs, axis=1)
+                cos_angles = -np.sum(normals[valid_indices] * ray_dirs, axis=1)
 
-            # Update colors where viewing angle is better (more nadir/facing camera)
-            better = (cos_angles > best_angles[valid_indices]) & (cos_angles > 0.05)
-            update_idx = valid_indices[better]
-            update_u = u_valid[better]
-            update_v = v_valid[better]
-            best_angles[update_idx] = cos_angles[better]
+                # Update colors where viewing angle is better (more nadir/facing camera)
+                better = (cos_angles > best_angles[valid_indices]) & (cos_angles > 0.05)
+                update_idx = valid_indices[better]
+                update_u = u_valid[better]
+                update_v = v_valid[better]
+                best_angles[update_idx] = cos_angles[better]
 
-            vertex_colors[update_idx] = rgb_img[update_v, update_u].astype(np.float64) / 255.0
+                vertex_colors[update_idx] = rgb_img[update_v, update_u].astype(np.float64) / 255.0
 
         mesh.vertex_colors = o3d.utility.Vector3dVector(vertex_colors)
 
         # 2. Compute UV texture coordinates based on XY planar projection of mesh bounding box
-        min_b = vertices.min(axis=0)
-        max_b = vertices.max(axis=0)
-        span_x = max(1.0, max_b[0] - min_b[0])
-        span_z = max(1.0, max_b[2] - min_b[2])
+        min_b = vertices.min(axis=0) if len(vertices) > 0 else np.zeros(3)
+        max_b = vertices.max(axis=0) if len(vertices) > 0 else np.ones(3)
+        span_x = max(1e-3, float(max_b[0] - min_b[0]))
+        span_z = max(1e-3, float(max_b[2] - min_b[2]))
 
         uvs = np.zeros((n_verts, 2), dtype=np.float32)
-        uvs[:, 0] = np.clip((vertices[:, 0] - min_b[0]) / span_x, 0.0, 1.0)
-        uvs[:, 1] = np.clip(1.0 - (vertices[:, 2] - min_b[2]) / span_z, 0.0, 1.0)
+        if n_verts > 0:
+            uvs[:, 0] = np.clip((vertices[:, 0] - min_b[0]) / span_x, 0.0, 1.0)
+            uvs[:, 1] = np.clip(1.0 - (vertices[:, 2] - min_b[2]) / span_z, 0.0, 1.0)
 
-        # 3. Create composite texture image from vertex colors
-        # Rasterize vertex colors onto texture canvas
+        # 3. Create composite texture image from vertex colors via vectorized rasterization
         tex_canvas = np.full((tex_size, tex_size, 3), 160, dtype=np.uint8)
-        px_u = np.clip((uvs[:, 0] * (tex_size - 1)).astype(int), 0, tex_size - 1)
-        px_v = np.clip(((1.0 - uvs[:, 1]) * (tex_size - 1)).astype(int), 0, tex_size - 1)
-        c_u8 = (vertex_colors * 255).astype(np.uint8)
+        if n_verts > 0:
+            px_u = np.clip((uvs[:, 0] * (tex_size - 1)).astype(int), 0, tex_size - 1)
+            px_v = np.clip(((1.0 - uvs[:, 1]) * (tex_size - 1)).astype(int), 0, tex_size - 1)
+            c_u8 = (vertex_colors * 255).astype(np.uint8)
+            tex_canvas[px_v, px_u] = c_u8
+            # Fast dilation to fill interpolation gaps
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            tex_canvas = cv2.dilate(tex_canvas, kernel, iterations=1)
 
-        # Draw smooth circles around vertices to populate texture atlas
-        for u, v, c in zip(px_u, px_v, c_u8):
-            cv2.circle(tex_canvas, (u, v), 3, (int(c[0]), int(c[1]), int(c[2])), -1)
-
-        # Inpaint any small unmapped gaps
-        mask_empty = cv2.inRange(tex_canvas, (155, 155, 155), (165, 165, 165))
-        if np.any(mask_empty):
-            tex_canvas = cv2.inpaint(tex_canvas, mask_empty, 5, cv2.INPAINT_TELEA)
-
-        logger.info(f"Texture projection complete across {len(sampled_views)} calibrated views.")
+        logger.info(f"Texture projection complete across {len(views)} calibrated views.")
         return vertex_colors, uvs, tex_canvas
 
     def export_mesh_deliverables(
@@ -245,23 +235,35 @@ class MeshProcessor:
         verts = np.asarray(mesh.vertices)
         normals = np.asarray(mesh.vertex_normals)
         faces = np.asarray(mesh.triangles)
-        colors = np.asarray(mesh.vertex_colors)
+        colors = np.asarray(mesh.vertex_colors) if mesh.has_vertex_colors() else np.full((len(verts), 3), 0.7)
+
+        # OpenMVS stores UVs per triangle corner. Expand those corners here as
+        # well, so OBJ, GLB, and the in-memory cleaned mesh use identical faces.
+        triangle_uvs = np.asarray(mesh.triangle_uvs)
+        if len(triangle_uvs) == len(faces) * 3:
+            export_vertices = verts[faces].reshape(-1, 3)
+            export_faces = np.arange(len(export_vertices), dtype=np.int64).reshape(-1, 3)
+            export_normals = normals[faces].reshape(-1, 3) if len(normals) == len(verts) else np.zeros_like(export_vertices)
+            export_colors = colors[faces].reshape(-1, 3)
+            export_uvs = triangle_uvs
+        else:
+            export_vertices = verts
+            export_faces = faces
+            export_normals = normals
+            export_colors = colors
+            export_uvs = uvs
 
         with open(obj_path, "w") as f:
             f.write("# Real Reconstructed 3D Photogrammetry Mesh\n")
             f.write("mtllib model.mtl\n")
             f.write("usemtl material_0\n")
-            # Vertices with color
-            for v, c in zip(verts, colors):
+            for v, c in zip(export_vertices, export_colors):
                 f.write(f"v {v[0]:.4f} {v[1]:.4f} {v[2]:.4f} {c[0]:.3f} {c[1]:.3f} {c[2]:.3f}\n")
-            # Normals
-            for n in normals:
+            for n in export_normals:
                 f.write(f"vn {n[0]:.4f} {n[1]:.4f} {n[2]:.4f}\n")
-            # UVs
-            for uv in uvs:
+            for uv in export_uvs:
                 f.write(f"vt {uv[0]:.4f} {uv[1]:.4f}\n")
-            # Faces
-            for face in faces:
+            for face in export_faces:
                 i0, i1, i2 = face[0] + 1, face[1] + 1, face[2] + 1
                 f.write(f"f {i0}/{i0}/{i0} {i1}/{i1}/{i1} {i2}/{i2}/{i2}\n")
 
@@ -273,15 +275,25 @@ class MeshProcessor:
         glb_path = output_dir / "model.glb"
         try:
             pil_tex = Image.open(str(tex_path))
-            material = trimesh.visual.texture.SimpleMaterial(image=pil_tex)
-            visual = trimesh.visual.TextureVisuals(uv=uvs, image=pil_tex, material=material)
-            
+            # OpenMVS stores UVs per triangle corner. Shared Open3D vertices
+            # can therefore have multiple valid UVs; expand corners so faces
+            # cannot sample unrelated atlas regions.
+            glb_vertices = export_vertices
+            glb_faces = export_faces
+            glb_uvs = np.asarray(export_uvs, dtype=np.float32).copy()
+            glb_normals = export_normals if len(export_normals) == len(export_vertices) else None
+
+            # glTF uses the opposite image-space V origin from the OpenMVS
+            # atlas/OBJ convention used by the source texture.
+            glb_uvs[:, 1] = 1.0 - glb_uvs[:, 1]
+
+            visual = trimesh.visual.TextureVisuals(uv=glb_uvs, image=pil_tex)
             tm = trimesh.Trimesh(
-                vertices=verts,
-                faces=faces,
-                vertex_normals=normals,
-                vertex_colors=(colors * 255).astype(np.uint8),
-                visual=visual
+                vertices=glb_vertices,
+                faces=glb_faces,
+                vertex_normals=glb_normals,
+                visual=visual,
+                process=False
             )
             glb_bytes = tm.export(file_type='glb')
             with open(glb_path, "wb") as f:

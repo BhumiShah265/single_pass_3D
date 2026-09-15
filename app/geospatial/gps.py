@@ -268,56 +268,71 @@ class GPSExtractor:
         self, 
         video_path: str | Path, 
         frame_paths: List[Path], 
-        duration_sec: float = 20.0
-    ) -> Dict[Path, Tuple[float, float, float]]:
+        duration_sec: float = 20.0,
+        telemetry_path: Optional[str | Path] = None,
+        frame_timestamps: Optional[List[float]] = None
+    ) -> Optional[Dict[Any, Tuple[float, float, float]]]:
         """
         Extract or interpolate GPS telemetry for a sequence of extracted frames.
-        Checks for companion flight logs (.srt, .csv, .gpx) beside the video.
-        If companion files exist, parses and interpolates timestamps to match each frame.
-        If no companion log exists, generates consistent metric drone trajectory priors
-        based on video duration and survey flight dynamics.
+        Checks explicit telemetry_path if provided, or companion flight logs (.srt, .csv, .gpx) beside the video.
         
         Returns:
-            Dict mapping frame Path to (lat, lon, alt) or metric (x, y, z)
+            Dict mapping frame Path and frame basename (str) to (lat, lon, alt), or None if no real telemetry.
         """
-        v_path = Path(video_path)
+        raw_telemetry: List[TelemetryPoint] = []
+
+        # 0. Check explicit telemetry_path if provided
+        if telemetry_path:
+            t_file = Path(telemetry_path)
+            if t_file.exists() and t_file.is_file():
+                ext = t_file.suffix.lower()
+                try:
+                    if ext == ".srt":
+                        raw_telemetry = self.parse_srt(t_file)
+                    elif ext == ".csv":
+                        raw_telemetry = self.parse_csv(t_file)
+                    elif ext == ".gpx":
+                        raw_telemetry = self.parse_gpx(t_file)
+                    logger.info(f"Loaded {len(raw_telemetry)} GPS telemetry points from explicit file: {t_file.name}")
+                except Exception as e:
+                    logger.warning(f"Failed parsing explicit telemetry {t_file.name}: {e}")
+
+        v_path = Path(video_path) if video_path else Path("video.mp4")
         v_dir = v_path.parent if v_path.exists() else Path(".")
         stem = v_path.stem
 
-        raw_telemetry: List[TelemetryPoint] = []
-        
-        # 1. Search for companion telemetry files
-        companion_candidates = [
-            v_dir / f"{stem}.srt",
-            v_dir / f"{stem}.csv",
-            v_dir / f"{stem}.gpx",
-            v_dir / f"{stem}.txt",
-            v_dir / "flight_log.csv",
-            v_dir / "telemetry.srt"
-        ]
+        # 1. Search for companion telemetry files if explicit file not provided or empty
+        if not raw_telemetry:
+            companion_candidates = [
+                v_dir / f"{stem}.srt",
+                v_dir / f"{stem}.csv",
+                v_dir / f"{stem}.gpx",
+                v_dir / f"{stem}.txt",
+                v_dir / "flight_log.csv",
+                v_dir / "telemetry.srt"
+            ]
 
-        for cand in companion_candidates:
-            if cand.exists() and cand.is_file():
-                ext = cand.suffix.lower()
-                try:
-                    if ext == ".srt":
-                        raw_telemetry = self.parse_srt(cand)
-                    elif ext == ".csv":
-                        raw_telemetry = self.parse_csv(cand)
-                    elif ext == ".gpx":
-                        raw_telemetry = self.parse_gpx(cand)
-                    if raw_telemetry:
-                        logger.info(f"Loaded {len(raw_telemetry)} GPS telemetry points from companion: {cand.name}")
-                        break
-                except Exception as e:
-                    logger.warning(f"Failed parsing companion telemetry {cand.name}: {e}")
+            for cand in companion_candidates:
+                if cand.exists() and cand.is_file():
+                    ext = cand.suffix.lower()
+                    try:
+                        if ext == ".srt":
+                            raw_telemetry = self.parse_srt(cand)
+                        elif ext == ".csv":
+                            raw_telemetry = self.parse_csv(cand)
+                        elif ext == ".gpx":
+                            raw_telemetry = self.parse_gpx(cand)
+                        if raw_telemetry:
+                            logger.info(f"Loaded {len(raw_telemetry)} GPS telemetry points from companion: {cand.name}")
+                            break
+                    except Exception as e:
+                        logger.warning(f"Failed parsing companion telemetry {cand.name}: {e}")
 
-        # 2. If no companion file, attempt to extract embedded subtitle stream (common in DJI drones)
+        # 2. Attempt to extract embedded subtitle stream (common in DJI drones)
         if not raw_telemetry and v_path.exists():
             try:
                 import subprocess
                 temp_srt = v_dir / f"{stem}_extracted_stream.srt"
-                # Try extracting subtitle stream 0:s:0
                 cmd = [
                     "ffmpeg", "-y", "-v", "error",
                     "-i", str(v_path),
@@ -334,21 +349,25 @@ class GPSExtractor:
                 logger.debug(f"No embedded subtitle stream extracted: {e}")
 
         num_frames = len(frame_paths)
-        if num_frames == 0:
+        if num_frames == 0 or not raw_telemetry:
+            logger.info("No valid GPS telemetry found. Operating in strictly LOCAL metric coordinates.")
             return None
 
-        gps_dict: Dict[Path, Tuple[float, float, float]] = {}
-        target_times = [float((i / max(1, num_frames - 1)) * duration_sec) for i in range(num_frames)]
-
-        if raw_telemetry:
-            # Interpolate known telemetry onto frame timestamps
-            interp_pts = self.interpolate_telemetry(raw_telemetry, target_times)
-            for i, pth in enumerate(frame_paths):
-                if i < len(interp_pts):
-                    pt = interp_pts[i]
-                    gps_dict[pth] = (pt.lat, pt.lon, pt.alt)
-            logger.info(f"Successfully associated real GPS telemetry with {len(gps_dict)} frames.")
-            return gps_dict
+        gps_dict: Dict[Any, Tuple[float, float, float]] = {}
+        if frame_timestamps and len(frame_timestamps) == num_frames:
+            target_times = frame_timestamps
         else:
-            logger.info("No GPS telemetry found in video streams or companion files. Operating in strictly LOCAL metric coordinates.")
-            return None
+            target_times = [float((i / max(1, num_frames - 1)) * duration_sec) for i in range(num_frames)]
+
+        # Interpolate known telemetry onto frame timestamps
+        interp_pts = self.interpolate_telemetry(raw_telemetry, target_times)
+        for i, pth in enumerate(frame_paths):
+            if i < len(interp_pts):
+                pt = interp_pts[i]
+                coords = (pt.lat, pt.lon, pt.alt)
+                gps_dict[pth] = coords
+                gps_dict[pth.name] = coords  # Match by basename too
+                gps_dict[str(pth)] = coords
+
+        logger.info(f"Successfully associated real GPS telemetry with {len(frame_paths)} frames.")
+        return gps_dict

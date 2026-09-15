@@ -59,6 +59,7 @@ class VideoConfig:
     target_fps: float = 2.0            # Extract frames at this FPS
     max_frames: int = 500              # Maximum frames to extract
     output_format: str = "png"         # Output image format
+    capture_profile: str = "aerial_drone"  # Landscape UAV capture is the supported profile
 
 
 @dataclass
@@ -77,6 +78,21 @@ class KeyframeConfig:
     max_frames: int = 150              # Maximum keyframes to select for SfM
 
 
+import shutil
+
+def find_glomap_binary() -> Optional[str]:
+    """Auto-detect GLOMAP binary location on PATH or local build directory."""
+    local_glomap = Path(__file__).resolve().parent.parent / ".local" / "bin" / "glomap"
+    if local_glomap.exists() and os.access(local_glomap, os.X_OK):
+        return str(local_glomap)
+    sys_glomap = shutil.which("glomap")
+    if sys_glomap:
+        return sys_glomap
+    return None
+
+import os
+
+
 @dataclass
 class DynamicMaskConfig:
     """Dynamic object masking settings."""
@@ -90,6 +106,7 @@ class DynamicMaskConfig:
 @dataclass
 class SfMConfig:
     """Structure-from-Motion settings."""
+    mapper_backend: str = "glomap"         # "glomap" or "pycolmap"
     feature_type: str = "sift"             # SIFT feature extraction
     camera_model: str = "SIMPLE_RADIAL"    # pycolmap auto-calibrated camera model
     camera_mode: str = "SINGLE"            # Single camera shared across all drone video frames
@@ -100,7 +117,7 @@ class SfMConfig:
 @dataclass
 class ReconstructionConfig:
     """Dense multi-view stereo reconstruction settings."""
-    method: str = "mvs_depth_fusion"       # "openmvs" or "mvs_depth_fusion"
+    method: str = "openmvs"                # "openmvs"
     stereo_num_disparities: int = 64       # SGBM disparity range (must be multiple of 16)
     stereo_block_size: int = 7             # SGBM block size
     voxel_size: float = 0.12               # Open3D voxel downsampling size (meters)
@@ -122,6 +139,7 @@ class GeoConfig:
     """Georeferencing settings."""
     crs: str = "auto"                  # Detect UTM zone from GPS coordinates if present
     use_gps_priors: bool = True        # Use GPS for alignment if telemetry available
+    telemetry_path: Optional[str] = None
 
 
 @dataclass
@@ -130,6 +148,7 @@ class PipelineConfig:
     # I/O paths
     input_video: Optional[str] = None
     input_dir: Optional[str] = None
+    telemetry_path: Optional[str] = None
     output_dir: str = "data/output"
     workspace_dir: str = "data/workspace"
 

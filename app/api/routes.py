@@ -8,6 +8,9 @@ import os
 import json
 import torch
 import mimetypes
+import shutil
+import numpy as np
+from PIL import Image, ImageOps
 
 from app.config import PipelineConfig, DEVICE, logger
 from app.pipeline import ReconstructionPipeline
@@ -20,6 +23,7 @@ jobs: Dict[str, dict] = {}
 class JobStatus(BaseModel):
     job_id: str
     status: str
+    stage: Optional[str] = "queued"
     message: str = ""
 
 class ReconstructRequest(BaseModel):
@@ -28,6 +32,8 @@ class ReconstructRequest(BaseModel):
     skip_georeferencing: bool = False
     skip_analysis: bool = False
     target_fps: Optional[float] = 4.0
+    mapper_backend: Optional[str] = "glomap"
+    telemetry_filename: Optional[str] = None
 
 MIME_MAP = {
     "glb": "model/gltf-binary",
@@ -66,7 +72,7 @@ async def get_system_info():
         "device": str(DEVICE),
         "device_name": device_name,
         "vram": vram,
-        "pipeline_version": "3.5.2"
+        "pipeline_version": "4.0.0"
     }
 
 @router.post("/upload")
@@ -85,6 +91,7 @@ async def upload_video(file: UploadFile = File(...)):
         
     jobs[job_id] = {
         "status": "uploaded", 
+        "stage": "uploaded",
         "file_path": str(file_path),
         "filename": file.filename,
         "file_size": size_bytes,
@@ -98,15 +105,35 @@ async def upload_video(file: UploadFile = File(...)):
         "message": "Video uploaded successfully"
     }
 
+@router.post("/upload-telemetry/{job_id}")
+async def upload_telemetry(job_id: str, file: UploadFile = File(...)):
+    """Upload an explicit telemetry log (.srt, .gpx, .csv) for a job."""
+    upload_dir = Path("data/uploads") / job_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    telemetry_path = upload_dir / file.filename
+    with open(telemetry_path, "wb") as f:
+        while chunk := await file.read(1024 * 1024):
+            f.write(chunk)
+            
+    if job_id not in jobs:
+        jobs[job_id] = {"status": "uploaded", "output_dir": f"data/output/{job_id}"}
+        
+    jobs[job_id]["telemetry_path"] = str(telemetry_path)
+    logger.info(f"Telemetry uploaded for job {job_id}: {file.filename}")
+    return {"job_id": job_id, "telemetry_filename": file.filename, "status": "telemetry_uploaded"}
+
 def run_pipeline_task(job_id: str, config: PipelineConfig):
-    """Background task to run the reconstruction pipeline."""
+    """Background task to run the reconstruction pipeline with progress tracking."""
     if job_id not in jobs:
         jobs[job_id] = {
             "status": "running",
+            "stage": "video_extraction",
             "output_dir": config.output_dir
         }
     else:
         jobs[job_id]["status"] = "running"
+        jobs[job_id]["stage"] = "video_extraction"
         jobs[job_id]["output_dir"] = config.output_dir
         
     logger.info(f"Starting pipeline execution for job {job_id}")
@@ -116,15 +143,18 @@ def run_pipeline_task(job_id: str, config: PipelineConfig):
         
         if result.get("status") == "success":
             jobs[job_id]["status"] = "completed"
+            jobs[job_id]["stage"] = "completed"
             jobs[job_id]["output_dir"] = result.get("output", config.output_dir)
             logger.info(f"Job {job_id} completed successfully")
         else:
             jobs[job_id]["status"] = "failed"
+            jobs[job_id]["stage"] = "failed"
             jobs[job_id]["message"] = result.get("message", "Pipeline execution failed")
             logger.error(f"Job {job_id} failed: {jobs[job_id]['message']}")
     except Exception as e:
         logger.exception(f"Unhandled exception in pipeline for job {job_id}: {e}")
         jobs[job_id]["status"] = "failed"
+        jobs[job_id]["stage"] = "failed"
         jobs[job_id]["message"] = str(e)
 
 @router.post("/reconstruct/{job_id}")
@@ -136,11 +166,13 @@ async def start_reconstruction(
     """Start the 3D reconstruction process."""
     upload_dir = Path("data/uploads") / job_id
     file_path = None
+    telemetry_path = None
     
     if job_id in jobs and "file_path" in jobs[job_id]:
         file_path = jobs[job_id]["file_path"]
+        telemetry_path = jobs[job_id].get("telemetry_path")
     elif upload_dir.exists():
-        files = list(upload_dir.glob("*.*"))
+        files = list(upload_dir.glob("*.mp4")) + list(upload_dir.glob("*.mov")) + list(upload_dir.glob("*.avi"))
         if files:
             file_path = str(files[0])
             jobs[job_id] = {
@@ -149,6 +181,10 @@ async def start_reconstruction(
                 "filename": files[0].name,
                 "output_dir": f"data/output/{job_id}"
             }
+        tfiles = list(upload_dir.glob("*.srt")) + list(upload_dir.glob("*.gpx")) + list(upload_dir.glob("*.csv"))
+        if tfiles:
+            telemetry_path = str(tfiles[0])
+            jobs[job_id]["telemetry_path"] = telemetry_path
             
     if not file_path or not Path(file_path).exists():
         raise HTTPException(status_code=404, detail="Uploaded video not found for this job")
@@ -156,6 +192,7 @@ async def start_reconstruction(
     opts = options or ReconstructRequest()
     config = PipelineConfig(
         input_video=file_path,
+        telemetry_path=telemetry_path,
         workspace_dir=f"data/workspace/{job_id}",
         output_dir=f"data/output/{job_id}",
         skip_dynamic_masking=opts.skip_dynamic_masking,
@@ -163,12 +200,15 @@ async def start_reconstruction(
         skip_georeferencing=opts.skip_georeferencing,
         skip_analysis=opts.skip_analysis
     )
+    if opts.mapper_backend:
+        config.sfm.mapper_backend = opts.mapper_backend
+        
     if opts.target_fps and opts.target_fps > 0:
         config.video.target_fps = float(opts.target_fps)
     
     background_tasks.add_task(run_pipeline_task, job_id, config)
-    logger.info(f"Queued reconstruction background task for job {job_id}")
-    return {"job_id": job_id, "status": "started"}
+    logger.info(f"Queued reconstruction background task for job {job_id} using {config.sfm.mapper_backend}")
+    return {"job_id": job_id, "status": "started", "mapper_backend": config.sfm.mapper_backend}
 
 @router.get("/status/{job_id}", response_model=JobStatus)
 async def get_status(job_id: str):
@@ -352,8 +392,9 @@ async def get_job_details(job_id: str):
 
 @router.get("/diagnostics/{job_id}")
 async def get_formation_diagnostics(job_id: str):
-    """Expose intermediate formation images and sky-removal diagnostics for testcases."""
+    """Expose real previews from the completed reconstruction workspace."""
     out_dir = Path("data/output") / job_id
+    workspace_dir = Path("data/workspace") / job_id
     info_file = out_dir / "diagnostic_info.json"
     info = {}
     if info_file.exists():
@@ -363,12 +404,50 @@ async def get_formation_diagnostics(job_id: str):
             except Exception:
                 pass
 
+    source_candidates = sorted((workspace_dir / "images").glob("*.png"))
+    source_path = source_candidates[0] if source_candidates else None
+    source_preview = out_dir / "diagnostic_source_keyframe.jpg"
+    mask_preview = out_dir / "diagnostic_mask_overlay.jpg"
+    texture_preview = out_dir / "diagnostic_texture_atlas.jpg"
+    dsm_preview = out_dir / "diagnostic_dsm.jpg"
+
+    if source_path and not source_preview.exists():
+        source = Image.open(source_path).convert("RGB")
+        source.save(source_preview, quality=92)
+
+        mask_path = workspace_dir / "masks" / f"{source_path.stem}_mask.png"
+        if mask_path.exists():
+            mask = Image.open(mask_path).convert("L").resize(source.size)
+            red = Image.new("RGB", source.size, (255, 80, 45))
+            highlighted = Image.composite(red, source, mask)
+            Image.blend(source, highlighted, 0.45).save(mask_preview, quality=92)
+
+    texture_path = out_dir / "texture.jpg"
+    if texture_path.exists() and not texture_preview.exists():
+        shutil.copy2(texture_path, texture_preview)
+
+    dsm_path = out_dir / "dsm.tif"
+    if dsm_path.exists() and not dsm_preview.exists():
+        try:
+            import rasterio
+            with rasterio.open(dsm_path) as raster:
+                values = raster.read(1).astype(np.float32)
+            finite = np.isfinite(values)
+            if finite.any():
+                lo, hi = np.percentile(values[finite], [2, 98])
+                normalized = np.clip((values - lo) / max(1e-6, hi - lo), 0, 1)
+                gray = Image.fromarray((normalized * 255).astype(np.uint8), mode="L")
+                ImageOps.colorize(gray, black="#123b66", mid="#36a87a", white="#f4d35e").save(
+                    dsm_preview, quality=92
+                )
+        except Exception as exc:
+            logger.warning(f"DSM diagnostic preview notice: {exc}")
+
     return {
         "job_id": job_id,
-        "source_keyframe_url": f"/data/output/{job_id}/diagnostic_source_keyframe.jpg" if (out_dir / "diagnostic_source_keyframe.jpg").exists() else None,
-        "sky_removed_url": f"/data/output/{job_id}/diagnostic_sky_removed.jpg" if (out_dir / "diagnostic_sky_removed.jpg").exists() else None,
-        "ground_ortho_url": f"/data/output/{job_id}/diagnostic_ground_ortho.jpg" if (out_dir / "diagnostic_ground_ortho.jpg").exists() else None,
-        "realtime_elevation_url": f"/data/output/{job_id}/diagnostic_realtime_elevation.jpg" if (out_dir / "diagnostic_realtime_elevation.jpg").exists() else None,
+        "source_keyframe_url": f"/data/output/{job_id}/diagnostic_source_keyframe.jpg" if source_preview.exists() else None,
+        "mask_overlay_url": f"/data/output/{job_id}/diagnostic_mask_overlay.jpg" if mask_preview.exists() else None,
+        "texture_atlas_url": f"/data/output/{job_id}/diagnostic_texture_atlas.jpg" if texture_preview.exists() else None,
+        "dsm_url": f"/data/output/{job_id}/diagnostic_dsm.jpg" if dsm_preview.exists() else None,
         "info": info
     }
-
