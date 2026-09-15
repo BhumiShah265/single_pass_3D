@@ -15,12 +15,26 @@ env/
 # Build and IDE
 build/
 dist/
+*_build/
+*_install/
+.third_party/
+.local/
 *.egg-info/
 .idea/
 .vscode/
 *.swp
 *.swo
 .DS_Store
+
+# Native C++ Submodules & Cloned Third-Party repos
+PoseLib/
+TinyEXIF/
+TinyNPY/
+halfmesh/
+openMVS/
+tinygltf/
+tinyply/
+vcglib/
 
 # Data, media uploads, and reconstruction outputs
 data/uploads/*

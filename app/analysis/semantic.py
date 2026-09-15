@@ -64,8 +64,13 @@ class SemanticAnnotator:
         detected_objects = []
         K = camera_calibration.get("K")
         if K is None:
-            focal = float(camera_calibration.get("focal_px", 1500.0))
-            cx, cy = camera_calibration.get("principal_pt", (960.0, 540.0))
+            focal = float(camera_calibration.get("focal_px", 0.0))
+            cx, cy = camera_calibration.get("principal_pt", None)
+            if focal <= 0 or cx is None or cy is None:
+                return {
+                    "status": "GSD unavailable - no real calibrated camera intrinsics recovered by SfM",
+                    "gsd_cm_px": None
+                }
             K = np.array([[focal, 0.0, cx], [0.0, focal, cy], [0.0, 0.0, 1.0]], dtype=np.float64)
 
         reg_views = [p for p in camera_poses if p.get("is_registered", False) and p.get("R") is not None]

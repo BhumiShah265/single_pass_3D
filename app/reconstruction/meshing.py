@@ -93,10 +93,13 @@ class MeshProcessor:
         # Build list of valid calibrated camera views
         views = []
         K = camera_calibration.get("K")
-        if K is None:
-            focal = float(camera_calibration.get("focal_px", 1500.0))
-            cx, cy = camera_calibration.get("principal_pt", (960.0, 540.0))
-            K = np.array([[focal, 0.0, cx], [0.0, focal, cy], [0.0, 0.0, 1.0]], dtype=np.float64)
+        if K is not None:
+            K = np.asarray(K, dtype=np.float64)
+        # NOTE: if SfM recovered no real calibrated intrinsics, we do NOT invent a
+        # camera (no fabricating focal=1500 / principal (960,540)): texture/vertex
+        # projection simply is skipped and the mesh is delivered uncolored with an
+        # honest status string. Projecting image colours through a made-up K would
+        # mint fabricated "true-colour textured model" geometry.
 
         for p in camera_poses:
             if p.get("is_registered", False) and p.get("R") is not None and p.get("C") is not None:

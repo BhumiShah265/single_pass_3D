@@ -445,7 +445,7 @@
                 <span class="material-symbols-outlined text-[13px]">grid_4x4</span> Wireframe
               </button>
               <button data-mode="pointcloud" class="vp-tab-btn px-2.5 py-1 rounded-md text-[10px] font-medium text-slate-400 hover:text-slate-200 transition-all hidden sm:flex items-center gap-1">
-                <span class="material-symbols-outlined text-[13px]">grain</span> LiDAR Cloud
+                <span class="material-symbols-outlined text-[13px]">grain</span> Dense MVS Cloud
               </button>
               <button data-mode="video" class="vp-tab-btn px-2.5 py-1 rounded-md text-[10px] font-medium text-slate-400 hover:text-slate-200 transition-all hidden lg:flex items-center gap-1">
                 <span class="material-symbols-outlined text-[13px]">videocam</span> Flight Video
@@ -904,7 +904,7 @@
         const count = pts.length;
         if (count === 0 && (!ptsData.mesh || !ptsData.mesh.vertices)) return;
 
-        // 1. High-Density 3D Gaussian Splats / LiDAR Point Cloud
+        // 1. Dense Multi-View Stereo Point Cloud (OpenMVS)
         const pGeom = new THREE.BufferGeometry();
         const pPositions = new Float32Array(count * 3);
         const pColors = new Float32Array(count * 3);
@@ -1204,7 +1204,7 @@
           if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Mode: Digital Surface Model (DSM Elevation)';
         } else if (mode === 'pointcloud') {
           if (pointCloudMesh) pointCloudMesh.visible = true;
-          if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-sky-400"></span> Mode: 3D Gaussian Splats / LiDAR Cloud';
+          if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-sky-400"></span> Mode: Dense Multi-View Stereo Point Cloud';
         } else if (mode === 'wireframe') {
           if (wireframeMesh) wireframeMesh.visible = true;
           if (activeLabel) activeLabel.innerHTML = '<span class="w-2 h-2 rounded-full bg-purple-400"></span> Mode: Structural Wireframe Mesh';
@@ -1396,7 +1396,7 @@
               if (rulerLine) scene.remove(rulerLine);
               rulerLine = new THREE.Line(geom, mat);
               scene.add(rulerLine);
-              jobStatusMessage.textContent = `Measured 3D Distance: ${dist.toFixed(2)} meters (Spatial Accuracy: Survey Grade <= 0.4m)`;
+              jobStatusMessage.textContent = `Measured 3D Distance: ${dist.toFixed(2)} meters (Local metric scale from calibrated SfM poses)`;
               rulerPoints = [];
             } else {
               jobStatusMessage.textContent = `Point 1 set at [${pt.x.toFixed(1)}, ${pt.y.toFixed(1)}, ${pt.z.toFixed(1)}]. Click second point to measure.`;
