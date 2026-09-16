@@ -1,3 +1,4 @@
+import io
 import os
 from pathlib import Path
 from typing import Union, List, Dict, Tuple, Optional, Any
@@ -347,6 +348,15 @@ class MeshProcessor:
             # glTF uses the opposite image-space V origin from the OpenMVS
             # atlas/OBJ convention used by the source texture.
             glb_uvs[:, 1] = 1.0 - glb_uvs[:, 1]
+
+            # Convert texture to PNG for maximum Three.js GLTFLoader
+            # compatibility; trimesh embeds images as-is and some viewers
+            # fail on JPEG-in-GLB.
+            pil_tex = pil_tex.convert("RGB")
+            buf = io.BytesIO()
+            pil_tex.save(buf, format="PNG")
+            buf.seek(0)
+            pil_tex = Image.open(buf)
 
             visual = trimesh.visual.TextureVisuals(uv=glb_uvs, image=pil_tex)
             tm = trimesh.Trimesh(
