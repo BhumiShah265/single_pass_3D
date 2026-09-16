@@ -28,7 +28,16 @@ class QualityFilter:
         image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
         if image is None:
             logger.error(f"Failed to read image for quality assessment: {image_path}")
-            return {"is_good": False, "score": 0.0, "blur": 0.0, "brightness": 0.0}
+            # Keep the returned schema identical for successful and failed
+            # decodes.  ``filter_frames`` records the rejection reason for
+            # every rejected frame, including a corrupt or incomplete image.
+            return {
+                "is_good": False,
+                "score": 0.0,
+                "blur": 0.0,
+                "brightness": 0.0,
+                "rejection_reasons": ["image could not be decoded"],
+            }
 
         # Laplacian variance is a standard measure of focus/sharpness
         blur = float(cv2.Laplacian(image, cv2.CV_64F).var())

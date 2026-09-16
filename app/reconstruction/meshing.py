@@ -69,6 +69,67 @@ class MeshProcessor:
         logger.info(f"Poisson mesh generated: {len(mesh.vertices):,} vertices, {len(mesh.triangles):,} faces.")
         return mesh
 
+    @staticmethod
+    def clean_mesh_topology(mesh: o3d.geometry.TriangleMesh) -> o3d.geometry.TriangleMesh:
+        """Remove disconnected debris and isolated long triangles before texturing.
+
+        This deliberately runs on the untextured mesh.  Textured OBJ files use
+        per-corner UVs, so modifying them afterwards can desynchronise geometry
+        and atlas coordinates and produce incorrect colours.
+        """
+        if len(mesh.triangles) == 0:
+            raise RuntimeError("Surface reconstruction produced an empty mesh.")
+
+        labels, component_sizes, _ = mesh.cluster_connected_triangles()
+        if len(component_sizes):
+            largest_component = max(component_sizes)
+            # Keep meaningful secondary surfaces but discard tiny floating
+            # islands, which are the usual visible spikes/debris.
+            min_component_faces = max(50, int(largest_component * 0.001))
+            rejected_components = [
+                index for index, size in enumerate(component_sizes)
+                if size < min_component_faces
+            ]
+            if rejected_components:
+                mesh.remove_triangles_by_mask(
+                    np.isin(np.asarray(labels), rejected_components)
+                )
+                mesh.remove_unreferenced_vertices()
+
+        faces = np.asarray(mesh.triangles)
+        vertices = np.asarray(mesh.vertices)
+        if len(faces):
+            triangle_vertices = vertices[faces]
+            edges = np.concatenate((
+                np.linalg.norm(triangle_vertices[:, 1] - triangle_vertices[:, 0], axis=1),
+                np.linalg.norm(triangle_vertices[:, 2] - triangle_vertices[:, 1], axis=1),
+                np.linalg.norm(triangle_vertices[:, 0] - triangle_vertices[:, 2], axis=1),
+            ))
+            median_edge = float(np.median(edges))
+            if median_edge > 0:
+                # A triangle with a 10x local edge is a reconstruction bridge,
+                # not supported surface detail. Removing it prevents the long
+                # coloured needles seen at sparse-depth boundaries.
+                max_edge = median_edge * 10.0
+                triangle_edges = np.stack((
+                    np.linalg.norm(triangle_vertices[:, 1] - triangle_vertices[:, 0], axis=1),
+                    np.linalg.norm(triangle_vertices[:, 2] - triangle_vertices[:, 1], axis=1),
+                    np.linalg.norm(triangle_vertices[:, 0] - triangle_vertices[:, 2], axis=1),
+                ), axis=1)
+                invalid = triangle_edges.max(axis=1) > max_edge
+                if invalid.any():
+                    mesh.remove_triangles_by_mask(invalid)
+                    mesh.remove_unreferenced_vertices()
+
+        mesh.remove_degenerate_triangles()
+        mesh.remove_duplicated_triangles()
+        mesh.remove_duplicated_vertices()
+        mesh.remove_non_manifold_edges()
+        mesh.compute_vertex_normals()
+        if len(mesh.triangles) == 0:
+            raise RuntimeError("Mesh cleanup removed every triangle; dense reconstruction is too sparse.")
+        return mesh
+
     def texture_mesh_from_cameras(
         self,
         mesh: o3d.geometry.TriangleMesh,

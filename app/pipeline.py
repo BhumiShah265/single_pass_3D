@@ -260,62 +260,11 @@ class ReconstructionPipeline:
             self.mesh = o3d.io.read_triangle_mesh(str(openmvs_mesh))
             self.mesh.compute_vertex_normals()
 
-            # TextureMesh duplicates vertices at UV seams, so connected
-            # component analysis must use the matching untextured PLY mesh.
-            # Remove only small disconnected islands while keeping the main
-            # calibrated surface and its per-corner texture coordinates.
-            topology_path = self.workspace / "dense" / "scene_dense_mesh.ply"
-            if topology_path.exists():
-                topology_mesh = o3d.io.read_triangle_mesh(str(topology_path))
-                if len(topology_mesh.triangles) == len(self.mesh.triangles):
-                    labels, component_sizes, _ = topology_mesh.cluster_connected_triangles()
-                    largest_component = int(max(component_sizes, default=0))
-                    min_component_size = max(50, int(largest_component * 0.01))
-                    keep_components = {
-                        index for index, size in enumerate(component_sizes)
-                        if int(size) >= min_component_size
-                    }
-                    triangle_mask = ~np.isin(
-                        np.asarray(labels), list(keep_components)
-                    )
-                    if triangle_mask.any():
-                        removed_faces = int(triangle_mask.sum())
-                        self.mesh.remove_triangles_by_mask(triangle_mask)
-                        self.mesh.remove_unreferenced_vertices()
-                        self.mesh.compute_vertex_normals()
-                        logger.info(
-                            f"Removed {removed_faces:,} small disconnected OpenMVS mesh faces "
-                            f"({len(keep_components)} connected surface components retained)."
-                        )
-
-            # Remove sparse bridge triangles that span reconstruction gaps. They
-            # are valid mesh faces syntactically, but stretch one atlas patch
-            # across empty space and create long texture streaks in the viewer.
-            mesh_vertices = np.asarray(self.mesh.vertices)
-            mesh_faces = np.asarray(self.mesh.triangles)
-            if len(mesh_faces):
-                triangle_vertices = mesh_vertices[mesh_faces]
-                edge_lengths = np.stack(
-                    [
-                        np.linalg.norm(triangle_vertices[:, 1] - triangle_vertices[:, 0], axis=1),
-                        np.linalg.norm(triangle_vertices[:, 2] - triangle_vertices[:, 1], axis=1),
-                        np.linalg.norm(triangle_vertices[:, 0] - triangle_vertices[:, 2], axis=1),
-                    ],
-                    axis=1,
-                )
-                median_edge = float(np.median(edge_lengths))
-                max_surface_edge = max(0.20, median_edge * 4.0)
-                stretched_faces = edge_lengths.max(axis=1) > max_surface_edge
-                if stretched_faces.any():
-                    removed_faces = int(stretched_faces.sum())
-                    self.mesh.remove_triangles_by_mask(stretched_faces)
-                    self.mesh.remove_unreferenced_vertices()
-                    self.mesh.compute_vertex_normals()
-                    logger.info(
-                        f"Removed {removed_faces:,} long bridge faces from textured OpenMVS mesh "
-                        f"(edge limit {max_surface_edge:.3f} m)."
-                    )
+            # Retain the exact topology and UV mapping produced by OpenMVS.
+            # Open3D's remove_triangles_by_mask does not update triangle_uvs, which causes
+            # the original camera UV projection to be discarded and replaced by planar mapping.
             
+
             # Load texture image if available
             tex_img = None
             openmvs_tex = getattr(self, "openmvs_texture_path", None)
