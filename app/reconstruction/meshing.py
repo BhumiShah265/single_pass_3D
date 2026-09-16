@@ -333,7 +333,22 @@ class MeshProcessor:
         paths["mtl"] = mtl_path
         logger.info(f"Exported OBJ: {obj_path} ({obj_path.stat().st_size:,} bytes)")
 
-        # 3. Export GLB via Trimesh
+        # 3. Export GLB via pygltflib (Three.js GLTFLoader-compatible)
+        import pygltflib as gltf_lib
+        GLTF2 = gltf_lib.GLTF2
+        GLTFBuffer = gltf_lib.Buffer
+        GLTFBufferView = gltf_lib.BufferView
+        GLTFAccessor = gltf_lib.Accessor
+        GLTFImage = gltf_lib.Image
+        GLTFTexture = gltf_lib.Texture
+        GLTFMaterial = gltf_lib.Material
+        GLTFMesh = gltf_lib.Mesh
+        GLTFNode = gltf_lib.Node
+        GLTFScene = gltf_lib.Scene
+        GLTFPrimitive = gltf_lib.Primitive
+        GLTFPbrMetallicRoughness = gltf_lib.PbrMetallicRoughness
+        GLTFTextureInfo = gltf_lib.TextureInfo
+        GLTFAttributes = gltf_lib.Attributes
         glb_path = output_dir / "model.glb"
         try:
             pil_tex = Image.open(str(tex_path))
@@ -356,38 +371,67 @@ class MeshProcessor:
             buf = io.BytesIO()
             pil_tex.save(buf, format="PNG")
             buf.seek(0)
-            pil_tex = Image.open(buf)
+            pil_tex_bytes = buf.getvalue()
 
-            visual = trimesh.visual.TextureVisuals(uv=glb_uvs, image=pil_tex)
-            tm = trimesh.Trimesh(
-                vertices=glb_vertices,
-                faces=glb_faces,
-                vertex_normals=glb_normals,
-                visual=visual,
-                process=False
-            )
-            glb_bytes = tm.export(file_type='glb')
-            with open(glb_path, "wb") as f:
-                f.write(glb_bytes)
+            gltf = GLTF2()
+
+            # Build binary payload: indices, positions, UVs, normals, image
+            idx_bytes = glb_faces.astype(np.uint32).tobytes()
+            pos_bytes = glb_vertices.astype(np.float32).tobytes()
+            uv_bytes = glb_uvs.astype(np.float32).tobytes()
+            norm_bytes = glb_normals.astype(np.float32).tobytes()
+            all_data = idx_bytes + pos_bytes + uv_bytes + norm_bytes + pil_tex_bytes
+
+            # Buffer (uri=None: data embedded in the GLB binary chunk)
+            gltf.buffers.append(GLTFBuffer(uri=None, byteLength=len(all_data)))
+            gltf.set_binary_blob(all_data)
+
+            # Buffer views (in order: indices, positions, UVs, normals, image)
+            offsets = [0, len(idx_bytes), len(idx_bytes)+len(pos_bytes), len(idx_bytes)+len(pos_bytes)+len(uv_bytes), len(idx_bytes)+len(pos_bytes)+len(uv_bytes)+len(norm_bytes)]
+            lengths = [len(idx_bytes), len(pos_bytes), len(uv_bytes), len(norm_bytes), len(pil_tex_bytes)]
+            for i, (off, ln) in enumerate(zip(offsets, lengths)):
+                gltf.bufferViews.append(GLTFBufferView(buffer=0, byteOffset=off, byteLength=ln))
+
+            # Accessors
+            gltf.accessors.append(GLTFAccessor(bufferView=0, componentType=5125, count=len(glb_faces) * 3, type="SCALAR"))
+            gltf.accessors.append(GLTFAccessor(bufferView=1, componentType=5126, count=len(glb_vertices), type="VEC3", min=glb_vertices.min(axis=0).tolist(), max=glb_vertices.max(axis=0).tolist()))
+            gltf.accessors.append(GLTFAccessor(bufferView=2, componentType=5126, count=len(glb_uvs), type="VEC2", min=[0.0, 0.0], max=[1.0, 1.0]))
+            gltf.accessors.append(GLTFAccessor(bufferView=3, componentType=5126, count=len(glb_normals), type="VEC3"))
+
+            # Image, texture, material, mesh, node, scene
+            gltf.images.append(GLTFImage(bufferView=4, mimeType="image/png", name="texture"))
+            gltf.textures.append(GLTFTexture(source=0))
+            gltf.materials.append(GLTFMaterial(
+                pbrMetallicRoughness=GLTFPbrMetallicRoughness(baseColorTexture=GLTFTextureInfo(index=0), baseColorFactor=[0.4, 0.4, 0.4, 1.0]),
+                doubleSided=False, name="material0"
+            ))
+            prim = GLTFPrimitive(attributes=GLTFAttributes(POSITION=1, TEXCOORD_0=2, NORMAL=3), indices=0, material=0, mode=4)
+            gltf.meshes.append(GLTFMesh(primitives=[prim], name="mesh0"))
+            gltf.nodes.append(GLTFNode(mesh=0, name="node0"))
+            gltf.scenes.append(GLTFScene(nodes=[0], name="scene0"))
+            gltf.scene = 0
+
+            gltf.save_binary(str(glb_path))
+            glb_bytes = glb_path.read_bytes()
             paths["glb"] = glb_path
             logger.info(f"Exported GLB: {glb_path} ({len(glb_bytes):,} bytes)")
         except Exception as glb_err:
-            logger.warning(f"Trimesh GLB export fallback: {glb_err}")
+            logger.warning(f"GLB export fallback: {glb_err}")
             o3d.io.write_triangle_mesh(str(output_dir / "model.gltf"), mesh)
 
         # 4. Export FBX format
         fbx_path = output_dir / "model.fbx"
-        num_v = len(verts)
-        num_f = len(faces)
-        vert_str = ','.join([f"{v[0]:.3f},{v[1]:.3f},{v[2]:.3f}" for v in verts])
-        normal_str = ','.join([f"{n[0]:.3f},{n[1]:.3f},{n[2]:.3f}" for n in normals])
+        num_v = len(export_vertices)
+        num_f = len(export_faces)
+        vert_str = ','.join([f"{v[0]:.3f},{v[1]:.3f},{v[2]:.3f}" for v in export_vertices])
+        normal_str = ','.join([f"{n[0]:.3f},{n[1]:.3f},{n[2]:.3f}" for n in export_normals])
         poly_indices = []
-        for f_idx in faces:
+        for f_idx in export_faces:
             poly_indices.append(str(f_idx[0]))
             poly_indices.append(str(f_idx[1]))
             poly_indices.append(str(-f_idx[2] - 1))
         poly_str = ','.join(poly_indices)
-        uv_str = ','.join([f"{uv[0]:.4f},{uv[1]:.4f}" for uv in uvs])
+        uv_str = ','.join([f"{uv[0]:.4f},{uv[1]:.4f}" for uv in export_uvs])
 
         fbx_content = f"""; FBX 7.4.0 project file
 ; Real 3D Drone Reconstruction
