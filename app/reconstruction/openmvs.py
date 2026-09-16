@@ -205,20 +205,18 @@ class DenseReconstructor:
         # This Apple Silicon build uses its available CPU path by default.
         cpu_flag: List[str] = []
         # Full-resolution MVS : do not downscale the calibrated views before
-        # patch-match, and let 8 neighbour views vote during depth-map depth
-        # fusion. The old default (resolution-level 1 + 5 views) fused only a
-        # coarse surface so every texture island stretched across large
-        # triangles. At full resolution the median triangle edge drops from
-        # ~9 cm to ~7 cm and 20 cm+ bridge faces drop by ~40%, which makes
-        # the projected colours sit naturally on the surface instead of
-        # smearing across reconstruction gaps.
+        # patch-match so depth maps are fused at native camera resolution.
+        # Fewer fused views (5) keep the surface continuous on sparse
+        # reconstructions while full-resolution imagery still shrinks the
+        # median triangle edge and prevents colour islands from stretching
+        # across reconstruction gaps.
         cmd_densify = [
             densify_bin,
             str(mvs_scene),
             "-o", str(dense_mvs),
             "--resolution-level", "0",
             "--max-resolution", "0",
-            "--number-views", "8",
+            "--number-views", "5",
             "--number-views-fuse", "2",
             "--iters", "3",
             "--geometric-iters", "2"
