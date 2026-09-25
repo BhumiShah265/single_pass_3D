@@ -464,7 +464,7 @@ class ReconstructionPipeline:
 
         # 3. Export real mesh deliverables (model.obj, model.mtl, texture.jpg, model.glb, model.fbx)
         mesh_proc = MeshProcessor(self.workspace, self.config.mesh)
-        mesh_proc.export_mesh_deliverables(
+        mesh_paths = mesh_proc.export_mesh_deliverables(
             self.mesh, 
             self.mesh_uvs, 
             self.texture_img, 
@@ -472,7 +472,12 @@ class ReconstructionPipeline:
             openmvs_obj_path=getattr(self, "openmvs_mesh_path", None),
             openmvs_mtl_path=getattr(self, "openmvs_mtl_path", None),
             openmvs_texture_path=getattr(self, "openmvs_texture_path", None),
+            dense_ply_path=getattr(self, "dense_ply_path", None),
         )
+        if "complete_glb" in mesh_paths:
+            points_payload["complete_glb_url"] = f"/data/output/{self.output_dir.name}/model_complete.glb"
+            with open(self.output_dir / "points.json", "w") as f:
+                json.dump(points_payload, f)
 
         # 4. Export real Stanford .PLY file
         ply_path = self.output_dir / "cloud.ply"

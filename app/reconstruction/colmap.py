@@ -84,13 +84,22 @@ class SfMPipeline:
         extraction_options = pycolmap.FeatureExtractionOptions()
         extraction_options.num_threads = self.num_threads
         extraction_options.sift.max_num_features = self.max_keypoints
+        # Always target the dedicated GPU (RTX); CUDA_VISIBLE_DEVICES=0 at startup
+        # means CUDA device 0 == RTX 4050, never the Intel iGPU.
         try:
             import torch
             if torch.cuda.is_available():
                 extraction_options.use_gpu = True
                 extraction_options.gpu_index = "0"
-        except Exception:
-            pass
+                # Domain-size pooling finds more repeatable keypoints on rooftops/facades
+                extraction_options.sift.domain_size_pooling = True
+                extraction_options.sift.num_octaves = 5       # extra octave → small details
+                extraction_options.sift.peak_threshold = 0.004  # lower → more keypoints
+                logger.info("SIFT extraction: CUDA GPU 0 (RTX 4050), domain-size pooling ON")
+            else:
+                logger.info("SIFT extraction: CPU (no CUDA available)")
+        except Exception as _gpu_err:
+            logger.warning("GPU feature extraction setup failed: %s", _gpu_err)
         
         pycolmap.extract_features(
             database_path=self.database_path,
@@ -102,9 +111,13 @@ class SfMPipeline:
             
     def match_features(self, method: str = "sequential") -> None:
         """
-        Match extracted features sequentially with geometric verification.
+        Match extracted features with geometric verification.
+        match_window=-1 triggers exhaustive matching (every frame vs every frame).
         """
-        logger.info(f"Matching features using {method} matching...")
+        # Auto-upgrade to exhaustive if match_window was set to -1 by the profile system
+        if self.match_window < 0:
+            method = "exhaustive"
+        logger.info(f"Matching features using {method} matching (window={self.match_window})...")
         matching_options = pycolmap.FeatureMatchingOptions()
         matching_options.num_threads = self.num_threads
         try:
@@ -112,15 +125,30 @@ class SfMPipeline:
             if torch.cuda.is_available():
                 matching_options.use_gpu = True
                 matching_options.gpu_index = "0"
-        except Exception:
-            pass
+                matching_options.guided_matching = True
+                logger.info("Feature matching: CUDA GPU 0 (RTX 4050), guided matching ON")
+            else:
+                logger.info("Feature matching: CPU")
+        except Exception as _gpu_err:
+            logger.warning("GPU matching setup failed: %s", _gpu_err)
+
         if method == "exhaustive":
+            # Exhaustive: every frame matched against every other frame
+            # This is the gold standard for multi-angle reconstruction
             pycolmap.match_exhaustive(self.database_path, matching_options=matching_options)
         else:
+            # Sequential with wide window + loop detection for orbiting shots
             pairing_options = pycolmap.SequentialPairingOptions()
             pairing_options.overlap = self.match_window
+            # loop_detection finds frames from opposite sides of the flight path
+            # that share overlapping coverage — critical for side-view geometry
+            try:
+                pairing_options.loop_detection = True
+                pairing_options.loop_detection_num_images = min(50, self.match_window * 2)
+            except AttributeError:
+                pass
             pycolmap.match_sequential(self.database_path, matching_options=matching_options, pairing_options=pairing_options)
-            
+
     def detect_sparse_model_dir(self) -> Path:
         """
         Detect the actual valid sparse-model directory (supporting workspace/sparse or workspace/sparse/0).
@@ -246,6 +274,17 @@ class SfMPipeline:
                 mapping_options = pycolmap.IncrementalPipelineOptions()
                 mapping_options.num_threads = self.num_threads
                 mapping_options.mapper.num_threads = self.num_threads
+                # Enable GPU acceleration for bundle adjustment
+                try:
+                    mapping_options.ba_use_gpu = True
+                    mapping_options.ba_gpu_index = "0"
+                except Exception:
+                    pass
+                # Focus on a single coherent aerial model instead of wasting CPU branching into 50 sub-models
+                mapping_options.multiple_models = False
+                mapping_options.max_num_models = 1
+                mapping_options.ba_global_max_num_iterations = 30
+                mapping_options.ba_local_max_num_iterations = 25
                 maps = pycolmap.incremental_mapping(
                     database_path=self.database_path,
                     image_path=self.image_dir,

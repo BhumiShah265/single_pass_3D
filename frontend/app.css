@@ -282,3 +282,355 @@ tbody tr:hover { background: rgba(255,255,255,.045); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }
+
+/* ── Professional Three.js GIS 3D Studio Styles ── */
+#studioViewport {
+  position: relative;
+  width: 100%;
+  height: 640px;
+  min-height: 640px;
+  background: #080c14;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), 0 20px 50px rgba(0,0,0,0.5);
+}
+
+#threeCanvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+  cursor: grab;
+}
+#threeCanvas:active {
+  cursor: grabbing;
+}
+
+.gis-hud-top-left {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.gis-hud-top-left > * {
+  pointer-events: auto;
+}
+
+.gis-hud-top-right {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.gis-hud-top-right > * {
+  pointer-events: auto;
+}
+
+.gis-hud-bottom {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  right: 14px;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+.gis-hud-bottom > * {
+  pointer-events: auto;
+}
+
+.hud-group {
+  display: inline-flex;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(13, 19, 33, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.hud-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #c5d1e2;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+.hud-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+.hud-btn.active {
+  color: #030816;
+  background: #4ee6d0;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(78, 230, 208, 0.4);
+}
+.hud-btn svg {
+  flex-shrink: 0;
+}
+
+.hud-slider-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 10px;
+  background: rgba(13, 19, 33, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+  color: #cbd5e1;
+  backdrop-filter: blur(16px);
+}
+.hud-slider-box input[type="range"] {
+  width: 70px;
+  accent-color: #4ee6d0;
+}
+
+.gis-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  background: rgba(8, 12, 20, 0.88);
+  backdrop-filter: blur(12px);
+  color: #e2e8f0;
+  font-size: 14px;
+  transition: opacity 0.3s ease;
+}
+.gis-loading-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.gis-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #4ee6d0;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+#studioViewport:fullscreen {
+  border-radius: 0;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ── Studio Dedicated Compact Workstation Layout ── */
+body[data-page="studio"] .app-shell {
+  margin: 8px auto 20px;
+  width: min(1560px, calc(100% - 24px));
+}
+
+body[data-page="studio"] .page {
+  padding-top: 8px;
+}
+
+body[data-page="studio"] .page-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  margin-bottom: 12px;
+  border-radius: 16px;
+}
+
+body[data-page="studio"] .page-title .eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+body[data-page="studio"] .page-title h1 {
+  font-size: 22px;
+  margin: 2px 0 0;
+  line-height: 1.2;
+}
+
+body[data-page="studio"] .page-title p {
+  font-size: 13px;
+  color: #94a3b8;
+  margin-top: 2px;
+  max-width: 680px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body[data-page="studio"] .hero-actions {
+  display: flex;
+  gap: 8px;
+}
+
+body[data-page="studio"] .hero-actions .btn {
+  padding: 8px 14px;
+  font-size: 13px;
+  border-radius: 10px;
+}
+
+/* Responsive Viewport calculation */
+#studioViewport {
+  position: relative;
+  width: 100%;
+  height: clamp(520px, calc(100vh - 215px), 780px);
+  min-height: 500px;
+  background: #080c14;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), 0 20px 50px rgba(0,0,0,0.5);
+}
+
+.viewport-card {
+  min-height: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* Studio Scrim to eliminate wallpaper clash */
+body[data-page="studio"] .wallpaper::before {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(13, 20, 36, 0.88), transparent 70%),
+    linear-gradient(180deg, rgba(4, 7, 15, 0.92) 0%, rgba(4, 7, 15, 0.96) 100%);
+}
+
+body[data-page="studio"] .wallpaper-layer {
+  filter: saturate(0.4) contrast(0.9) brightness(0.32);
+}
+
+/* Dark high-contrast sidebar cards */
+body[data-page="studio"] .studio-sidebar .card.glass {
+  background: rgba(13, 19, 33, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(20px);
+}
+
+body[data-page="studio"] .studio-sidebar .mini-stat span {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+body[data-page="studio"] .studio-sidebar .mini-stat strong {
+  color: #f8fafc;
+  font-size: 13px;
+}
+
+/* Dedicated HUD Pill Styling */
+.gis-hud-bottom .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(13, 19, 33, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(16px);
+  white-space: nowrap;
+}
+
+.gis-hud-bottom .pill.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #4ee6d0;
+}
+
+#estimateNotice {
+  background: rgba(18, 52, 68, 0.95) !important;
+  border-color: rgba(78, 230, 208, 0.4) !important;
+  color: #5eead4 !important;
+  font-weight: 600;
+}
+
+.gis-hud-bottom .kbd,
+#gisHelp .kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+  line-height: 1.2;
+}
+
+@media (max-width: 1050px) {
+  #studioViewport {
+    height: 540px;
+    min-height: 540px;
+  }
+  .studio-sidebar {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .studio-sidebar .card {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 820px) {
+  .gis-hud-top-left .hud-btn span,
+  .gis-hud-top-right .hud-btn:not(#btnFullscreen):not(#btnResetView) {
+    font-size: 11px;
+    padding: 5px 8px;
+  }
+  #gisHelp {
+    display: none;
+  }
+}
+
+@media (max-width: 680px) {
+  #studioViewport {
+    height: 440px;
+    min-height: 440px;
+  }
+  .gis-hud-top-left {
+    top: 8px;
+    left: 8px;
+  }
+  .gis-hud-top-right {
+    top: 8px;
+    right: 8px;
+  }
+  .hud-btn {
+    padding: 5px 7px;
+    font-size: 11px;
+  }
+  .gis-hud-top-left .hud-btn span {
+    display: none;
+  }
+  .studio-sidebar {
+    grid-template-columns: 1fr;
+  }
+}

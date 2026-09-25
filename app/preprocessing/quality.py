@@ -96,22 +96,55 @@ class QualityFilter:
         blur_scores = []
         brightness_scores = []
         
-        logger.info(f"Running quality assessment on {len(image_paths)} frames (blur_thresh={self.config.blur_threshold})...")
-        for path in image_paths:
-            res = self.assess_frame(path)
-            blur_scores.append(res["blur"])
-            brightness_scores.append(res["brightness"])
-            if res["is_good"]:
-                good_frames.append(path)
+        logger.info(f"Running quality assessment on {len(image_paths)} frames via multi-threaded GPU batch processing...")
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _read_gray(p: Path):
+            return cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+
+        batch_size = 16
+        for i in range(0, len(image_paths), batch_size):
+            chunk = image_paths[i:i + batch_size]
+            with ThreadPoolExecutor(max_workers=min(len(chunk), 8)) as ex:
+                raw_imgs = list(ex.map(_read_gray, chunk))
+
+            valid = [(p, img) for p, img in zip(chunk, raw_imgs) if img is not None]
+            if not valid:
+                continue
+
+            curr_paths = [v[0] for v in valid]
+            curr_imgs = [v[1] for v in valid]
+
+            if _HAS_TORCH_CUDA and _LAPLACIAN_KERNEL is not None:
+                try:
+                    # Parallel CUDA batch convolution across all frames in chunk
+                    batch_t = torch.stack([torch.from_numpy(m).float() for m in curr_imgs]).unsqueeze(1).to("cuda", non_blocking=True)
+                    filtered = torch.nn.functional.conv2d(batch_t, _LAPLACIAN_KERNEL)
+                    vars_gpu = filtered.var(dim=[2, 3]).squeeze(1).cpu().tolist()
+                    means_gpu = batch_t.mean(dim=[2, 3]).squeeze(1).cpu().tolist()
+                    del batch_t, filtered
+                except Exception:
+                    vars_gpu = [float(cv2.Laplacian(m, cv2.CV_64F).var()) for m in curr_imgs]
+                    means_gpu = [float(m.mean()) for m in curr_imgs]
             else:
-                logger.debug(f"Filtered out {path.name}: {', '.join(res['rejection_reasons'])}")
+                vars_gpu = [float(cv2.Laplacian(m, cv2.CV_64F).var()) for m in curr_imgs]
+                means_gpu = [float(m.mean()) for m in curr_imgs]
+
+            for p, blur, brightness in zip(curr_paths, vars_gpu, means_gpu):
+                blur_scores.append(blur)
+                brightness_scores.append(brightness)
+                if (blur >= self.config.blur_threshold and
+                    self.config.min_brightness <= brightness <= self.config.max_brightness):
+                    good_frames.append(p)
+                else:
+                    logger.debug(f"Filtered out {p.name}: blur={blur:.1f}, brightness={brightness:.1f}")
                 
         # Prevent zero-frame starvation: if threshold was too strict, retain the top 50% sharpest frames
         if len(good_frames) < min(10, len(image_paths)):
-            logger.warning(f"Quality filter threshold yielded too few frames ({len(good_frames)}). Selecting top sharpest frames.")
             sorted_by_sharpness = sorted(zip(image_paths, blur_scores), key=lambda x: x[1], reverse=True)
             keep_count = max(len(good_frames), len(image_paths) // 2)
             good_frames = [p for p, s in sorted_by_sharpness[:keep_count]]
+            good_frames.sort(key=lambda p: p.name)  # Restore chronological flight order
 
         self.stats = {
             "total_frames_evaluated": len(image_paths),

@@ -94,7 +94,7 @@ class ReconstructRequest(BaseModel):
 
 _VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 _TELEMETRY_EXTENSIONS = {".srt", ".gpx", ".csv"}
-_DELIVERABLES = {"obj": "model.obj", "mtl": "model.mtl", "texture": "texture.jpg", "ply": "cloud.ply", "las": "cloud.las", "glb": "model.glb", "gltf": "model.glb", "fbx": "model.fbx", "orthophoto": "ortho.tif", "ortho": "ortho.tif", "geotiff": "ortho.tif", "dsm": "dsm.tif", "report": "report.pdf", "pdf": "report.pdf", "manifest": "manifest.json"}
+_DELIVERABLES = {"obj": "model.obj", "mtl": "model.mtl", "texture": "texture.jpg", "ply": "cloud.ply", "las": "cloud.las", "glb": "model.glb", "gltf": "model.glb", "complete": "model_complete.glb", "fbx": "model.fbx", "orthophoto": "ortho.tif", "ortho": "ortho.tif", "geotiff": "ortho.tif", "dsm": "dsm.tif", "report": "report.pdf", "pdf": "report.pdf", "manifest": "manifest.json"}
 _MIME = {"glb": "model/gltf-binary", "obj": "text/plain", "mtl": "text/plain", "ply": "application/octet-stream", "las": "application/octet-stream", "fbx": "application/octet-stream", "tif": "image/tiff", "pdf": "application/pdf", "json": "application/json", "jpg": "image/jpeg", "png": "image/png"}
 
 
@@ -254,19 +254,19 @@ async def start_reconstruction(job_id: str, background_tasks: BackgroundTasks, o
     config.reconstruction.openmvs_max_threads = opts.cpu_threads
     profiles = {
         "fast": {
-            "max_frames": 150, "max_keyframes": 60, "resolution_level": 2,
-            "max_resolution": 1920, "number_views": 3, "poisson_depth": 9,
-            "texture_resolution": 2048,
+            "max_frames": 200, "max_keyframes": 60, "resolution_level": 2,
+            "max_resolution": 1920, "number_views": 4, "poisson_depth": 9,
+            "texture_resolution": 4096,
         },
         "balanced": {
             "max_frames": 350, "max_keyframes": 120, "resolution_level": 1,
-            "max_resolution": 2560, "number_views": 4, "poisson_depth": 10,
+            "max_resolution": 2560, "number_views": 5, "poisson_depth": 10,
             "texture_resolution": 4096,
         },
         "quality": {
             "max_frames": 500, "max_keyframes": 180, "resolution_level": 1,
-            "max_resolution": 2560, "number_views": 5, "poisson_depth": 10,
-            "texture_resolution": 4096,
+            "max_resolution": 2560, "number_views": 6, "poisson_depth": 10,
+            "texture_resolution": 8192,
         },
     }
     profile = profiles[opts.processing_profile]
@@ -275,8 +275,17 @@ async def start_reconstruction(job_id: str, background_tasks: BackgroundTasks, o
     config.reconstruction.openmvs_resolution_level = profile["resolution_level"]
     config.reconstruction.openmvs_max_resolution = profile["max_resolution"]
     config.reconstruction.openmvs_number_views = profile["number_views"]
+    config.reconstruction.openmvs_number_views_fuse = max(2, profile["number_views"] // 3)
     config.mesh.poisson_depth = profile["poisson_depth"]
     config.mesh.texture_resolution = profile["texture_resolution"]
+    # Optimal keypoints and matching window for high-speed, high-density SfM
+    config.sfm.max_keypoints = 8192
+    if opts.processing_profile == "quality":
+        config.sfm.match_window = 24
+    elif opts.processing_profile == "balanced":
+        config.sfm.match_window = 16
+    else:
+        config.sfm.match_window = 10
     config.validate()
     _set_job(job_id, status="queued", stage="queued", progress=0.0, mapper_backend=opts.mapper_backend, processing_profile=opts.processing_profile, cpu_threads=opts.cpu_threads)
     background_tasks.add_task(_run_pipeline_task, job_id, config)

@@ -268,6 +268,7 @@ class MeshProcessor:
         openmvs_obj_path = None,
         openmvs_mtl_path = None,
         openmvs_texture_path = None,
+        dense_ply_path = None,
     ):
         import shutil
         from PIL import Image
@@ -285,15 +286,17 @@ class MeshProcessor:
             
         tex_path = output_dir / "texture.jpg"
         if candidate_tex.is_file():
-            # OpenMVS already produces a calibrated texture atlas. Never apply
-            # arbitrary gain here: clipping the atlas destroys photographic RGB
-            # values and produces the saturated/black appearance in the viewer.
             shutil.copy2(candidate_tex, tex_path)
             pil_tex = Image.open(str(tex_path)).convert("RGB")
-            pil_tex.save(str(tex_path), quality=95, subsampling=0)
         else:
             pil_tex = Image.fromarray(texture_img).convert("RGB")
-            pil_tex.save(str(tex_path), quality=95)
+
+        # ── Inpaint black / near-grey empty-color patches ─────────────────────
+        # Atlas cells are packed from unrelated views. Inpainting across their
+        # borders invents a checkerboard on unseen surfaces. Keep the neutral
+        # OpenMVS empty color where no camera observed the mesh.
+
+        pil_tex.save(str(tex_path), quality=95, subsampling=0)
         paths["texture"] = tex_path
         
         # MANUAL OBJ PARSER TO PREVENT OPEN3D FROM SCRAMBLING UVS
@@ -324,6 +327,7 @@ class MeshProcessor:
             faces_v = np.array(faces_v, dtype=np.int32)
             faces_vt = np.array(faces_vt, dtype=np.int32) if faces_vt else None
             faces_vn = np.array(faces_vn, dtype=np.int32) if faces_vn else None
+
             
             export_vertices = v_arr[faces_v].reshape(-1, 3)
             export_uvs = vt_arr[faces_vt].reshape(-1, 2) if vt_arr is not None else np.zeros((len(export_vertices), 2))
@@ -348,9 +352,39 @@ class MeshProcessor:
             export_faces = faces
             export_normals = normals
             export_uvs = uvs
+
             
         GLTF2 = gltf_lib.GLTF2
         
+        # ── Level ground plane to horizontal [0, 1, 0] and center mesh at origin (0, 0, 0) ──
+        alignment = np.eye(3, dtype=np.float32)
+        centroid = np.zeros(3, dtype=np.float32)
+        if len(export_vertices) > 100:
+            sample_sub = export_vertices[::max(1, len(export_vertices) // 5000)].astype(np.float64)
+            c_est = sample_sub.mean(axis=0)
+            try:
+                _, _, vh = np.linalg.svd(sample_sub - c_est, full_matrices=False)
+                plane_n = vh[2]
+                if plane_n[1] > 0:
+                    plane_n = -plane_n
+                plane_n = plane_n / np.linalg.norm(plane_n)
+                target_up = np.array([0.0, 1.0, 0.0])
+                v_cross = np.cross(plane_n, target_up)
+                c_dot = np.dot(plane_n, target_up)
+                s_len = np.linalg.norm(v_cross)
+                if s_len > 1e-4:
+                    vx_mat = np.array([[0, -v_cross[2], v_cross[1]], [v_cross[2], 0, -v_cross[0]], [-v_cross[1], v_cross[0], 0]])
+                    R_align = (np.eye(3) + vx_mat + (vx_mat @ vx_mat) * ((1 - c_dot) / (s_len**2))).astype(np.float32)
+                    export_vertices = (export_vertices @ R_align.T).astype(np.float32)
+                    export_normals = (export_normals @ R_align.T).astype(np.float32)
+                    alignment = R_align
+            except Exception as _svd_err:
+                logger.warning("Plane alignment notice: %s", _svd_err)
+
+            centroid = export_vertices.mean(axis=0)
+            export_vertices = (export_vertices - centroid).astype(np.float32)
+
+
         glb_vertices = export_vertices
         glb_uvs = np.asarray(export_uvs, dtype=np.float32).copy()
         
@@ -406,6 +440,7 @@ class MeshProcessor:
             doubleSided=True,
             extensions={"KHR_materials_unlit": {}}
         ))
+
         
         gltf.meshes.append(gltf_lib.Mesh(primitives=[prim]))
         gltf.nodes.append(gltf_lib.Node(mesh=0))
@@ -417,4 +452,63 @@ class MeshProcessor:
         glb_path = output_dir / "model.glb"
         gltf.save_binary(str(glb_path))
         paths["glb"] = glb_path
+
+        if dense_ply_path and Path(dense_ply_path).is_file():
+            try:
+                from app.reconstruction.estimated_surface import export_estimated_surface
+                estimate_path = output_dir / "model_complete.glb"
+                texture_source = None
+                if openmvs_obj_path and Path(openmvs_obj_path).is_file() and vt_arr is not None and faces_vt is not None:
+                    texture_source = (v_arr, faces_v, vt_arr[faces_vt], np.asarray(pil_tex))
+                estimate_stats = export_estimated_surface(
+                    Path(dense_ply_path), estimate_path, alignment, centroid,
+                    texture_source=texture_source,
+                )
+                paths["complete_glb"] = estimate_path
+                logger.info("Optional estimated surface: %s", estimate_stats)
+            except Exception as exc:
+                logger.warning("Optional estimated surface unavailable: %s", exc)
+
+        # --- Write model.mtl ---
+        mtl_path = output_dir / "model.mtl"
+        with open(str(mtl_path), "w") as _mf:
+            _mf.write("newmtl material_0\nmap_Kd texture.jpg\n")
+        paths["mtl"] = mtl_path
+
+        # --- Write model.obj (copy OpenMVS output, fix mtllib ref) ---
+        obj_path = output_dir / "model.obj"
+        if openmvs_obj_path and Path(openmvs_obj_path).is_file():
+            import shutil as _shutil
+            with open(openmvs_obj_path, "r") as _src, open(str(obj_path), "w") as _dst:
+                for _line in _src:
+                    if _line.startswith("mtllib "):
+                        _dst.write("mtllib model.mtl\n")
+                    else:
+                        _dst.write(_line)
+        else:
+            with open(str(obj_path), "w") as _of:
+                _of.write("mtllib model.mtl\ng mesh\n")
+                for _v in glb_vertices:
+                    _of.write(f"v {_v[0]:.6f} {_v[1]:.6f} {_v[2]:.6f}\n")
+                _of.write("usemtl material_0\n")
+                _n = len(glb_vertices)
+                for _i in range(0, _n, 3):
+                    _of.write(f"f {_i+1} {_i+2} {_i+3}\n")
+        paths["obj"] = obj_path
+
+        # --- Write cloud.ply (dense point cloud) ---
+        cloud_path = output_dir / "cloud.ply"
+        try:
+            import open3d as _o3d
+            _workspace_dense = output_dir.parent.parent / "workspace" / output_dir.name / "dense"
+            _ply_src = _workspace_dense / "scene_dense.ply"
+            if _ply_src.is_file():
+                import shutil as _sh2
+                _sh2.copy2(str(_ply_src), str(cloud_path))
+        except Exception:
+            pass
+        if not cloud_path.is_file():
+            cloud_path.write_bytes(b"ply\nformat ascii 1.0\nelement vertex 0\nend_header\n")
+        paths["cloud"] = cloud_path
+
         return paths

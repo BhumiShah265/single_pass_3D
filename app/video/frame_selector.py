@@ -72,10 +72,6 @@ class KeyframeSelector:
         logger.info(f"Selecting keyframes from {len(image_paths)} frames...")
         
         for curr_path in image_paths[1:]:
-            if len(selected) >= self.config.max_frames:
-                logger.info(f"Reached max keyframes ({self.config.max_frames}). Stopping selection.")
-                break
-                
             baseline_sufficient = False
             curr_img = None
             
@@ -111,6 +107,14 @@ class KeyframeSelector:
                     curr_img = cv2.imread(str(curr_path), cv2.IMREAD_GRAYSCALE)
                 prev_img = curr_img
                 prev_path = curr_path
+
+        # If keyframe count exceeds budget, uniformly subsample to span the entire flight
+        if len(selected) > self.config.max_frames:
+            step = len(selected) / float(self.config.max_frames)
+            subsampled = [selected[int(i * step)] for i in range(self.config.max_frames)]
+            if selected[-1] not in subsampled:
+                subsampled[-1] = selected[-1]
+            selected = subsampled
 
         # If optical flow selected too few frames (e.g. ultra smooth drone pass), sample evenly
         min_desired = min(20, len(image_paths))

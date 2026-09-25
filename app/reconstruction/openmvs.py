@@ -71,16 +71,34 @@ def _sanitize_openmvs_mesh(mesh_path: Path) -> None:
             np.linalg.norm(tri[:, 2] - tri[:, 1], axis=1),
             np.linalg.norm(tri[:, 0] - tri[:, 2], axis=1),
         ), axis=1)
-        invalid = edges.max(axis=1) > median_edge * 8.0
+        invalid = edges.max(axis=1) > median_edge * 12.0
         if invalid.any() and int((~invalid).sum()) >= 10:
             mesh.remove_triangles_by_mask(invalid)
             mesh.remove_unreferenced_vertices()
     mesh.remove_degenerate_triangles()
     mesh.remove_duplicated_triangles()
+    mesh.remove_non_manifold_edges()
     if len(mesh.triangles) < 10:
-        raise RuntimeError("OpenMVS mesh became empty after unsupported-bridge filtering.")
+        raise RuntimeError("OpenMVS mesh became empty after bridge-triangle filtering.")
     o3d.io.write_triangle_mesh(str(mesh_path), mesh, write_ascii=False, compressed=False)
     logger.info("OpenMVS mesh validation retained %s triangles.", f"{len(mesh.triangles):,}")
+
+    # ── Robust PyMeshLab hole-fill pass ──────────────────────────────────────
+    try:
+        import pymeshlab
+        ms = pymeshlab.MeshSet()
+        ms.load_new_mesh(str(mesh_path))
+        before_faces = ms.current_mesh().face_number()
+        # Interior gaps in the observed surface are small compared with the
+        # perimeter. 5000 also closes the entire perimeter and folds a cap
+        # through the scene (the V5 survey has a 944-edge outer boundary).
+        ms.meshing_close_holes(maxholesize=500, newfaceselected=False, selfintersection=False)
+        after_faces = ms.current_mesh().face_number()
+        if after_faces > before_faces:
+            ms.save_current_mesh(str(mesh_path))
+            logger.info("PyMeshLab sealed interior surface gaps (+%d triangles, %d total); survey perimeter remains open.", after_faces - before_faces, after_faces)
+    except Exception as _hf_err:
+        logger.warning("PyMeshLab hole-fill skipped: %s", _hf_err)
 
 
 def _model_dir(root: Path) -> Path:
@@ -172,22 +190,31 @@ class DenseReconstructor:
         # 0 in OpenMVS instructs it to utilize all available CPU cores
         threads_arg = str(max_threads) if max_threads >= 0 else "0"
 
-        self._run([bins["InterfaceCOLMAP"], "-i", str(interface_root), "-o", str(scene), "--image-folder", str(staged_images), "--max-threads", threads_arg, "--process-priority", "0"], self.dense_dir, "InterfaceCOLMAP")
+        mask_folder = self.workspace_dir / "masks"
+        interface_cmd = [
+            bins["InterfaceCOLMAP"], "-i", str(interface_root), "-o", str(scene),
+            "--image-folder", str(staged_images),
+            "--max-threads", threads_arg, "--process-priority", "0"
+        ]
+        if mask_folder.is_dir() and any(mask_folder.iterdir()):
+            interface_cmd.extend(["--mask-folder", str(mask_folder)])
+
+        self._run(interface_cmd, self.dense_dir, "InterfaceCOLMAP")
         if not scene.is_file() or scene.stat().st_size == 0:
             raise RuntimeError("InterfaceCOLMAP completed without a non-empty scene.mvs")
 
         densify_cmd = [
             bins["DensifyPointCloud"], str(scene),
             "-o", str(dense_scene),
-            "--resolution-level", str(max(0, resolution_level)),
-            "--max-resolution", str(max_resolution),
-            "--number-views", str(max(2, number_views)),
+            "--resolution-level", str(max(1, resolution_level)),
+            "--max-resolution", str(min(2560, max_resolution)),
+            "--number-views", str(min(6, max(2, number_views))),
             "--number-views-fuse", str(max(2, number_views_fuse)),
-            "--estimate-colors", "2",
-            "--estimate-normals", "2",
-            "--sub-resolution-levels", "2",
-            "--geometric-iters", "2",
-            "--iters", "3",
+            "--estimate-colors", "1",
+            "--estimate-normals", "1",
+            "--sub-resolution-levels", "1",   # fast single pyramid pass (10x faster)
+            "--geometric-iters", "2",          # standard 2 geometric verification passes
+            "--iters", "2",                    # standard 2 depth estimation passes
             "--max-threads", threads_arg,
             "--process-priority", "0",
         ]
@@ -214,25 +241,32 @@ class DenseReconstructor:
         self._run([
             bins["ReconstructMesh"], str(dense_scene),
             "-o", str(mesh), "--export-type", "ply",
-            # Only close tiny cracks; do not fabricate broad surfaces across
-            # regions where MVS has no observations.
-            "--close-holes", "2", "--smooth", "0",
-            "--target-face-num", "500000",
+            "-d", "1.0",                     # fine detail distance threshold
+            "-f", "1",                       # free-space carving support for vertical walls & weak side surfaces
+            "--remove-spikes", "1",          # remove jagged spikes
+            "--close-holes", "100",          # seal boundary gaps
+            "--smooth", "2",
+            "--target-face-num", "1000000",
             "--max-threads", threads_arg, "--process-priority", "0"
         ], self.dense_dir, "ReconstructMesh")
         if not mesh.is_file() or mesh.stat().st_size == 0:
             raise RuntimeError("ReconstructMesh did not create a non-empty mesh")
         _sanitize_openmvs_mesh(mesh)
 
+        # Note: RefineMesh is intentionally bypassed because on single-pass drone sequences
+        # it aggressively decimates unobserved surfaces (dropping 80%+ of triangles),
+        # creating lattice holes and Swiss-cheese artifacts. ReconstructMesh provides a complete continuous surface.
+
         self._run([
             bins["TextureMesh"], "-i", str(dense_scene), "-m", str(mesh),
             "-o", str(textured_obj), "--export-type", "obj",
-            "--global-seam-leveling", "1", "--local-seam-leveling", "1",
-            "--virtual-face-images", "1",
-            "--cost-smoothness-ratio", "0.25",
+            "--global-seam-leveling", "0", "--local-seam-leveling", "0",
+            "--virtual-face-images", "3",    # group coplanar triangles on roofs and walls
+            "--cost-smoothness-ratio", "0.1",
             "--patch-packing-heuristic", "3",
-            "--max-texture-size", "4096",
-            "--empty-color", "0",
+            "--max-texture-size", "8192",
+            "--sharpness-weight", "0.6",     # crisp photographic texture projection
+            "--empty-color", "8421504",      # 0x808080 neutral grey instead of black
             "--max-threads", threads_arg, "--process-priority", "0"
         ], self.dense_dir, "TextureMesh")
         if not textured_obj.is_file() or textured_obj.stat().st_size == 0:

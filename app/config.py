@@ -88,9 +88,17 @@ def _detect_default_device() -> str:
         import torch
         if torch.cuda.is_available():
             try:
+                # Lock to RTX (device 0 after CUDA_VISIBLE_DEVICES=0 is set in main.py)
                 torch.cuda.set_device(0)
-                torch.backends.cudnn.benchmark = True
-                os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
+                torch.backends.cudnn.enabled = True
+                torch.backends.cudnn.benchmark = True    # auto-tune kernels for this GPU
+                torch.backends.cudnn.allow_tf32 = True   # faster matmuls on Ampere+
+                torch.backends.cuda.matmul.allow_tf32 = True
+                cores = max(1, os.cpu_count() or 12)
+                torch.set_num_threads(cores)             # maximum intra-op CPU-GPU worker threads
+                torch.set_num_interop_threads(max(1, cores // 2))
+                os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+                os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
             except Exception:
                 pass
             return "cuda"
@@ -173,8 +181,8 @@ class SfMConfig:
     feature_type: str = "sift"
     camera_model: str = "SIMPLE_RADIAL"
     camera_mode: str = "SINGLE"
-    max_keypoints: int = 4096
-    match_window: int = 8
+    max_keypoints: int = 16384          # 4× more keypoints → better oblique matching
+    match_window: int = 30              # match 30 neighbours → full-orbit coverage
     min_registered_views: int = 3
     min_sparse_points: int = 100
 
@@ -185,13 +193,13 @@ SYSTEM_CPU_CORES = max(1, os.cpu_count() or 12)
 @dataclass
 class ReconstructionConfig:
     method: str = "openmvs"
-    voxel_size: float = 0.08
+    voxel_size: float = 0.04            # finer voxel grid → more surface detail
     outlier_nb_neighbors: int = 20
-    outlier_std_ratio: float = 2.0
-    openmvs_resolution_level: int = 0
-    openmvs_max_resolution: int = 4096
-    openmvs_number_views: int = 6
-    openmvs_number_views_fuse: int = 3
+    outlier_std_ratio: float = 1.5      # tighter outlier removal
+    openmvs_resolution_level: int = 0   # full resolution depth maps
+    openmvs_max_resolution: int = 3200  # cap per-image resolution (VRAM safe)
+    openmvs_number_views: int = 8       # more views considered per depth sample
+    openmvs_number_views_fuse: int = 3  # min views needed to accept a fused point
     openmvs_max_threads: int = 0
     allow_colmap_fallback: bool = True
 

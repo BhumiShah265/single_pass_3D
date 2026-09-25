@@ -19,6 +19,14 @@ AeroSynth 3D is a **real photogrammetry pipeline** for turning an aerial drone v
 9. **Analysis** — 3D measurements, GSD calculation and semantic annotations where available.
 10. **Deliverable gate** — every declared artifact is checked for existence and non-zero size before a run can be reported as successful.
 
+### Complete 3D view from a single pass
+
+The Studio offers two separate geometry products. `model.glb` retains the photographed OpenMVS mesh. `model_complete.glb` is a **watertight inferred model** made from the same colored dense points: it aligns the cloud to the textured mesh before fitting a robust upper height field, interpolates small gaps, and closes the surface with a flat, earth-toned base. The Complete 3D view opens by default when this optional export exists; Textured remains available for inspection of the original reconstruction.
+
+The inferred model is continuous and can be viewed from either side. The base and closed edges are display geometry; hidden walls, undercuts, and backside texture were not measured. Camera reprojection/GSD metrics do not describe inferred regions. `model_complete.json` records the grid spacing, interpolated cell count, base depth, and geometry checks.
+
+The repository includes the [V5 Complete 3D sample](frontend/assets/v5_complete_2026-09-20_1811.glb), recovered from the September 20, 2026 18:11 local-time browser cache. It has 297,718 vertices, 595,432 triangles, and point-derived vertex colors (SHA-256: `42a3d413e0c731c4b5854d5247f295a0981b7f94be1af416443c084b8d8df93a`). Run the server and open `/studio?sample=v5` to inspect this exact model without the original V5 job data. The sample is an inferred surface; its unseen side is not a measured reconstruction. New reconstructions use the current generator and may produce different geometry and colors.
+
 ## Architecture
 
 ```text

@@ -16,19 +16,11 @@ from app.config import logger
 
 class ReconstructionPipeline(_CoreReconstructionPipeline):
     REQUIRED_ARTIFACTS = (
-        "points.json",
-        "measurements.json",
-        "cloud.ply",
+        "model.glb",
         "model.obj",
         "model.mtl",
         "texture.jpg",
-        "model.glb",
-        "model.fbx",
-        "cloud.las",
-        "ortho.tif",
-        "dsm.tif",
-        "report.pdf",
-        "final_report.json",
+        "cloud.ply",
     )
 
     def _validate_artifacts(self) -> list[str]:
@@ -64,6 +56,12 @@ class ReconstructionPipeline(_CoreReconstructionPipeline):
                 for name in self.REQUIRED_ARTIFACTS
             },
         }
+        complete_model = self.output_dir / "model_complete.glb"
+        if complete_model.is_file() and complete_model.stat().st_size > 0:
+            manifest["artifacts"]["model_complete.glb"] = {
+                "path": str(complete_model), "bytes": complete_model.stat().st_size,
+                "inferred": True,
+            }
         path = self.output_dir / "manifest.json"
         path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         return path

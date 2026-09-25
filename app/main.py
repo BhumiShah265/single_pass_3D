@@ -1,8 +1,20 @@
 """CLI and FastAPI application entry point."""
 from __future__ import annotations
 
-import argparse
+# ── Force NVIDIA RTX GPU before any CUDA library loads ────────────────────────
+# On laptops with NVIDIA Optimus (Intel iGPU + RTX), Windows reports the Intel
+# GPU as GPU 1 in Task Manager. We must pin CUDA to PCI bus order and make only
+# device 0 (RTX) visible so every library (torch, pycolmap, cv2 CUDA, OpenMVS)
+# exclusively uses the dedicated GPU.
 import os
+os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
+os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "0")   # async GPU kernel launch
+# OpenMVS / OpenCV CUDA thread hint
+os.environ.setdefault("OMP_NUM_THREADS", "4")
+# ─────────────────────────────────────────────────────────────────────────────
+
+import argparse
 from pathlib import Path
 
 import mimetypes
@@ -42,7 +54,7 @@ def create_app() -> FastAPI:
         }
         def make_page_handler(filename: str):
             async def page() -> FileResponse:
-                return FileResponse(str(frontend_dir / filename))
+                return FileResponse(str(frontend_dir / filename), headers={"Cache-Control": "no-store"})
 
             return page
 
