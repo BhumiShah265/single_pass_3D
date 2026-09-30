@@ -68,7 +68,6 @@ cmake -S "$OPENMVS_DIR" -B "$BUILD_DIR" -GNinja \
 
 cmake --build "$BUILD_DIR" --parallel "$JOBS" --target \
   InterfaceCOLMAP DensifyPointCloud ReconstructMesh TextureMesh
-cmake --install "$BUILD_DIR"
 
 for binary in InterfaceCOLMAP DensifyPointCloud ReconstructMesh TextureMesh; do
   candidate="$(find "$BUILD_DIR" "$INSTALL_DIR" -type f -name "$binary" -perm -111 -print -quit 2>/dev/null || true)"
