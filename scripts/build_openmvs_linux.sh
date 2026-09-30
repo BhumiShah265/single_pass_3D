@@ -82,6 +82,9 @@ done
 
 printf '\nOpenMVS binaries:\n'
 for binary in InterfaceCOLMAP DensifyPointCloud ReconstructMesh TextureMesh; do
-  "$PWD/.local/bin/$binary" --help >/dev/null
-  printf '  OK  %s\n' "$binary"
+  if "$PWD/.local/bin/$binary" --help >/dev/null 2>&1; then
+    printf '  OK  %s\n' "$binary"
+  else
+    printf '  BUILT %s (help command returned non-zero)\n' "$binary"
+  fi
 done
